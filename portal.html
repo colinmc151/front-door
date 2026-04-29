@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Worksome Hiring Hub</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #ffffff; --border: #e2e5ea; --border-light: #f0f1f3;
+    --text: #1a1d23; --text-2: #5f6776; --text-3: #9ba3b0;
+    --accent: #6b3fa0; --accent-bg: #f3eefa; --accent-hover: #5a3488;
+    --warn: #b45309; --warn-bg: #fef3e2;
+    --red: #dc2626; --red-bg: #fef2f2;
+    --blue: #2563eb; --blue-bg: #eff6ff;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --mono: 'SF Mono', 'Fira Code', Consolas, monospace;
+    --radius: 6px; --radius-lg: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+  #root { height: 100vh; display: flex; flex-direction: column; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Inputs */
+  .input { font-family: var(--font); font-size: 13px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); outline: none; width: 100%; transition: border-color 0.15s; background: var(--surface); color: var(--text); }
+  .input:focus { border-color: var(--accent); }
+  .input-sm { padding: 6px 10px; font-size: 12px; }
+  textarea.input { resize: vertical; min-height: 60px; }
+  select.input { cursor: pointer; }
+
+  /* Buttons */
+  .btn { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 8px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: var(--bg); }
+  .btn-primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-ghost { border: none; background: none; color: var(--text-2); }
+  .btn-ghost:hover { background: var(--bg); color: var(--text); }
+  .btn-danger { color: var(--red); border-color: var(--red); }
+  .btn-danger:hover { background: var(--red-bg); }
+
+  /* Chat */
+  .chat-msg { display: flex; gap: 10px; max-width: 640px; }
+  .chat-msg.user { flex-direction: row-reverse; margin-left: auto; }
+  .chat-avatar { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: white; flex-shrink: 0; }
+  .chat-bubble { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.55; }
+  .chat-msg.assistant .chat-bubble { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .chat-msg.user .chat-bubble { background: #18181b; color: white; border-bottom-right-radius: 4px; }
+  .chat-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .chat-option { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 8px 18px; border-radius: 20px; border: 1.5px solid #e2e5ea; background: white; color: #1a1d23; cursor: pointer; transition: all 0.2s; }
+  .chat-option:hover { border-color: #6b3fa0; color: #6b3fa0; background: #f3eefa; transform: translateY(-1px); box-shadow: 0 2px 8px rgba(107,63,160,0.12); }
+  .chat-time { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .chat-msg.user .chat-time { text-align: right; }
+
+  /* Route card */
+  .route-card { padding: 14px 16px; border-radius: var(--radius-lg); border-left: 4px solid; margin-top: 8px; max-width: 500px; }
+  .route-card.worksome { border-color: var(--accent); background: var(--accent-bg); }
+  .route-card.vms { border-color: var(--warn); background: var(--warn-bg); }
+
+  /* Typing indicator */
+  @keyframes blink { 0%,60%,100% { opacity: 0.3; } 30% { opacity: 1; } }
+  .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); display: inline-block; animation: blink 1.4s infinite; }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  /* Stats cards */
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; }
+  .stat-value { font-size: 28px; font-weight: 700; line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+  .stat-change { font-size: 12px; font-weight: 600; margin-top: 8px; }
+  .stat-change.up { color: var(--accent); }
+  .stat-change.down { color: var(--red); }
+
+  /* Table */
+  .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table th { text-align: left; padding: 10px 12px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-3); border-bottom: 2px solid var(--border); }
+  .table td { padding: 10px 12px; border-bottom: 1px solid var(--border-light); }
+  .table tr:hover td { background: #fafbfc; }
+
+  /* Badge */
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; display: inline-block; }
+  .badge-green { background: var(--accent-bg); color: var(--accent); }
+  .badge-orange { background: var(--warn-bg); color: var(--warn); }
+  .badge-blue { background: var(--blue-bg); color: var(--blue); }
+  .badge-gray { background: var(--bg); color: var(--text-3); }
+
+  /* Config sections */
+  .config-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+  .config-section-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border-light); }
+  .config-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .config-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ══════════════════════════════════════
+// CONFIG STATE
+// ══════════════════════════════════════
+const defaultConfig = {
+  client_name: 'Worksome',
+  assistant_name: 'Worksome Hiring Hub',
+  branding: { logo_text: 'W', primary_color: '#1a1d23', greeting: "Hi! I'm here to help you find the right talent. Let's get started.", logo_url: '', hero_image_url: '', headline: '', subheadline: '' },
+  vms: { name: 'Beeline', url: 'https://beeline.com', api_type: 'REST' },
+  worksome_url: 'https://sandbox.worksome.com/login',
+  weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
+  knockouts: {
+    vms: ['agency', 'staffing firm', 'temp workers', 'temps'],
+    worksome: ['freelancer', 'independent consultant', 'sow', 'statement of work', 'fixed bid', 'milestone payment']
+  },
+  approval_gates: [{ condition: 'spend > 100000', action: 'procurement_review' }],
+  api_key: ''
+};
+
+// ══════════════════════════════════════
+// MOCK ANALYTICS DATA
+// ══════════════════════════════════════
+const mockRequests = [
+  { id: 1, date: '2026-04-28', role: 'Brand Designer', route: 'worksome', confidence: 'high', status: 'contract_sent', manager: 'Sarah Chen', duration: '45s' },
+  { id: 2, date: '2026-04-28', role: 'Java Developers (x5)', route: 'vms', confidence: 'high', status: 'requisition_open', manager: 'James Park', duration: '62s' },
+  { id: 3, date: '2026-04-27', role: 'Data Analyst', route: 'worksome', confidence: 'medium', status: 'pending_compliance', manager: 'Maria Lopez', duration: '88s' },
+  { id: 4, date: '2026-04-27', role: 'Warehouse Staff (x12)', route: 'vms', confidence: 'high', status: 'requisition_open', manager: 'Tom Wright', duration: '35s' },
+  { id: 5, date: '2026-04-26', role: 'UX Researcher', route: 'worksome', confidence: 'high', status: 'contract_accepted', manager: 'Aisha Patel', duration: '52s' },
+  { id: 6, date: '2026-04-26', role: 'IT Support (x3)', route: 'vms', confidence: 'medium', status: 'pending_approval', manager: 'David Kim', duration: '95s' },
+  { id: 7, date: '2026-04-25', role: 'Marketing Consultant', route: 'worksome', confidence: 'high', status: 'contract_accepted', manager: 'Lisa Ng', duration: '41s' },
+  { id: 8, date: '2026-04-25', role: 'DevOps Engineer', route: 'worksome', confidence: 'medium', status: 'pending_compliance', manager: 'Raj Mehta', duration: '78s' },
+];
+const weeklyVolume = [
+  { week: 'W13', worksome: 8, vms: 5 }, { week: 'W14', worksome: 12, vms: 7 },
+  { week: 'W15', worksome: 10, vms: 9 }, { week: 'W16', worksome: 15, vms: 6 },
+  { week: 'W17', worksome: 11, vms: 8 }, { week: 'W18', worksome: 14, vms: 10 },
+];
+const avgDuration = [
+  { week: 'W13', seconds: 72 }, { week: 'W14', seconds: 65 }, { week: 'W15', seconds: 58 },
+  { week: 'W16', seconds: 52 }, { week: 'W17', seconds: 48 }, { week: 'W18', seconds: 55 },
+];
+
+// ══════════════════════════════════════
+// SYSTEM PROMPT BUILDER
+// ══════════════════════════════════════
+function buildSystemPrompt(cfg) {
+  return `You are ${cfg.assistant_name}, a hiring assistant that helps managers find the right talent quickly. You make the process simple — the manager describes what they need in plain language, and you handle the rest.
+
+You are warm, professional, and efficient. You never use procurement jargon (no "SOW," "staff augmentation," "IC," or "VMS"). You speak the manager's language.
+
+## Your Job
+Conduct a short intake interview (2–7 questions) to understand what the manager needs, then produce a structured routing decision. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain the routing logic.
+
+## Conversation Flow
+
+### Q1: Ask "Do you already know who you'd like to work with?"
+- If YES → Path A (Fast Track)
+- If NO → Path B (Discovery)
+
+### Path A: Fast Track
+Q1b: "Great — is this person replacing someone on your team, or are they coming in for a specific project?"
+- PROJECT → Route: worksome
+- REPLACE → Ask Q1c
+
+Q1c: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
+- YES (SDC present) → Route: vms
+- NO (autonomous) → Route: worksome
+
+### Path B: Discovery Flow
+Q2: "Tell me about the work you need done — what's the role or project?"
+Q3: "Is this for a specific project with a defined deliverable, or do you need ongoing support for your team?" (weight: ${cfg.weights.deliverable_or_ongoing})
+Q4: "How long do you expect this to last?" (weight: ${cfg.weights.duration})
+Q5: "How many people do you need?" (weight: ${cfg.weights.headcount})
+
+After Q5, if clear → route. If ambiguous → ask tiebreakers:
+Q6: "Would you prefer to pay for specific deliverables or on an hourly/daily rate?" (weight: ${cfg.weights.payment_model})
+Q7: "Will you be managing this person's day-to-day work?" (weight: ${cfg.weights.sdc})
+
+## Knockout Signals (instant route, check every answer)
+Route to VMS if: ${cfg.knockouts.vms.join(', ')} or 10+ identical roles
+Route to Worksome if: ${cfg.knockouts.worksome.join(', ')}
+
+## Scoring
+Deliverable/ongoing: wt ${cfg.weights.deliverable_or_ongoing} | Duration: wt ${cfg.weights.duration} | Headcount: wt ${cfg.weights.headcount} | Payment: wt ${cfg.weights.payment_model} | SDC: wt ${cfg.weights.sdc}
+Route clear if one side ≥ 5. Ambiguous if diff ≤ 1 → ask tiebreakers.
+
+## VMS Provider
+The VMS for this client is: ${cfg.vms.name}
+
+## Output
+When routing is determined, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
+\`\`\`json
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"...","known_worker":true_or_false,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"..."}
+\`\`\`
+
+## Rules
+1. One question at a time. Never stack questions.
+2. Keep messages to 1-3 sentences.
+3. Never mention Worksome, ${cfg.vms.name}, SDC, scoring, or routing to the manager.
+4. Never use procurement jargon.
+5. Be conversational — like a helpful colleague, not a form.
+6. When confirming the route, say: "Perfect — I've got everything I need. I'm setting this up for you now."`;
+}
+
+// ══════════════════════════════════════
+// CLAUDE API CALL
+// ══════════════════════════════════════
+async function callClaude(apiKey, systemPrompt, messages) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      system: systemPrompt,
+      messages: messages.map(m => ({ role: m.role, content: m.text }))
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API error: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.content[0].text;
+}
+
+// ══════════════════════════════════════
+// MAIN APP
+// ══════════════════════════════════════
+function App() {
+  const [page, setPage] = useState('chat');
+  const [config, setConfig] = useState(() => {
+    try { const s = sessionStorage.getItem('fd_config'); return s ? {...defaultConfig, ...JSON.parse(s)} : defaultConfig; } catch { return defaultConfig; }
+  });
+
+  const updateConfig = useCallback((updates) => {
+    setConfig(prev => {
+      const next = {...prev, ...updates};
+      try { sessionStorage.setItem('fd_config', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const accentStyle = { '--accent': config.branding.primary_color, '--accent-bg': config.branding.primary_color + '18', '--accent-hover': config.branding.primary_color + 'dd' };
+
+  return (
+    <div style={{...accentStyle, height: '100vh', display: 'flex', flexDirection: 'column'}}>
+      {page === 'chat' ? (
+        <ChatPage config={config} setPage={setPage} page={page} />
+      ) : (
+        <>
+          <Nav page={page} setPage={setPage} config={config} />
+          <div style={{flex: 1, overflow: 'hidden'}}>
+            {page === 'config' && <ConfigPage config={config} updateConfig={updateConfig} />}
+            {page === 'analytics' && <AnalyticsPage config={config} />}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// NAV
+// ══════════════════════════════════════
+function Nav({ page, setPage, config }) {
+  const tabs = [
+    { id: 'chat', label: 'Intake', icon: '💬' },
+    { id: 'analytics', label: 'Analytics', icon: '📊' },
+    { id: 'config', label: 'Settings', icon: '⚙️' }
+  ];
+  return (
+    <div style={{background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 52}}>
+      <div style={{display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer'}} onClick={() => setPage('chat')}>
+        <div style={{width: 30, height: 30, background: config.branding.primary_color, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: 'white', fontWeight: 700}}>
+          {config.branding.logo_text}
+        </div>
+        <span style={{fontSize: 15, fontWeight: 600}}>{config.assistant_name}</span>
+      </div>
+      <div style={{display: 'flex', gap: 2}}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setPage(t.id)}
+            style={{fontFamily: 'var(--font)', fontSize: 13, fontWeight: 500, padding: '6px 14px', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+              background: page === t.id ? 'var(--accent-bg)' : 'transparent',
+              color: page === t.id ? 'var(--accent)' : 'var(--text-2)' }}>
+            <span style={{fontSize: 14}}>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// QUICK-REPLY DETECTION
+// ══════════════════════════════════════
+function detectQuickReplies(text) {
+  const t = text.toLowerCase();
+  if (t.includes('already know who') || t.includes('know who you\'d like'))
+    return ['Yes, I have someone in mind', 'No, I need to find someone'];
+  if ((t.includes('replacing someone') || t.includes('replace someone')) && (t.includes('project') || t.includes('specific')))
+    return ['Replacing someone on my team', 'Coming in for a specific project'];
+  if (t.includes('managing their day-to-day') || t.includes('managing this person') || t.includes('supervising their schedule') || t.includes('directing how'))
+    return ['Yes, I\'ll manage them directly', 'No, they\'ll work independently'];
+  if ((t.includes('specific project') || t.includes('defined deliverable')) && (t.includes('ongoing support') || t.includes('ongoing')))
+    return ['Specific project with a deliverable', 'Ongoing support for my team'];
+  if (t.includes('prefer to pay') && (t.includes('deliverable') || t.includes('hourly')))
+    return ['Pay for deliverables / milestones', 'Hourly or daily rate'];
+  return null;
+}
+
+// ══════════════════════════════════════
+// LEFT PANEL (Branding)
+// ══════════════════════════════════════
+function LeftPanel({ config, setPage, onLogoClick }) {
+  const worksomeCount = mockRequests.filter(r => r.route === 'worksome').length;
+  const vmsCount = mockRequests.filter(r => r.route === 'vms').length;
+  const avgSec = Math.round(mockRequests.reduce((a, r) => a + parseInt(r.duration), 0) / mockRequests.length);
+  const recentThree = mockRequests.slice(0, 3);
+  const hasHero = config.branding.hero_image_url && config.branding.hero_image_url.trim();
+  const hasLogo = config.branding.logo_url && config.branding.logo_url.trim();
+
+  const headline = config.branding.headline || `Welcome back to\n${config.assistant_name}`;
+  const subheadline = config.branding.subheadline || 'Your single front door for hiring. Describe what you need and we\'ll route you to the right place.';
+
+  return (
+    <div style={{width: '42%', minWidth: 360, background: '#18181b', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '36px 44px', position: 'relative', overflow: 'hidden'}}>
+      {/* Subtle gradient overlay */}
+      <div style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(ellipse at 20% 0%, rgba(107,63,160,0.15) 0%, transparent 60%)', pointerEvents: 'none'}} />
+
+      {/* Logo + nav */}
+      <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'absolute', top: 36, left: 44, right: 44, zIndex: 1}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer'}} onClick={onLogoClick}>
+          {hasLogo ? (
+            <img src={config.branding.logo_url} alt={config.client_name} style={{height: 28, objectFit: 'contain'}} />
+          ) : (
+            <>
+              <div style={{width: 30, height: 30, background: 'white', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: '#18181b', fontWeight: 800}}>
+                {config.branding.logo_text}
+              </div>
+              <span style={{fontSize: 15, fontWeight: 700, color: 'white', letterSpacing: -0.3}}>{config.client_name || 'worksome'}</span>
+            </>
+          )}
+        </div>
+        <div style={{display: 'flex', gap: 2}}>
+          <button className="btn btn-ghost btn-sm" style={{color: 'rgba(255,255,255,0.5)', fontSize: 12}} onClick={() => setPage('analytics')}>Analytics</button>
+          <button className="btn btn-ghost btn-sm" style={{color: 'rgba(255,255,255,0.5)', fontSize: 12}} onClick={() => setPage('config')}>Settings</button>
+        </div>
+      </div>
+
+      {/* Headline */}
+      <div style={{position: 'relative', zIndex: 1}}>
+        <h1 style={{fontSize: 32, fontWeight: 700, lineHeight: 1.15, marginBottom: 14, color: 'white', letterSpacing: -0.5, whiteSpace: 'pre-line'}}>
+          {headline}
+        </h1>
+        <p style={{fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 1.65, marginBottom: 36, maxWidth: 340}}>
+          {subheadline}
+        </p>
+      </div>
+
+      {/* Hero image OR data cards */}
+      <div style={{position: 'relative', zIndex: 1}}>
+        {hasHero ? (
+          <div style={{display: 'flex', flexDirection: 'column', gap: 14}}>
+            <img src={config.branding.hero_image_url} alt="Hero"
+              style={{width: '100%', maxWidth: 360, borderRadius: 14, boxShadow: '0 8px 30px rgba(0,0,0,0.3)', objectFit: 'cover'}} />
+          </div>
+        ) : (
+          <div style={{display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 320}}>
+            {/* Recent requests card */}
+            <div style={{background: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.08)'}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14}}>
+                <span style={{fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5}}>Recent requests</span>
+                <span style={{fontSize: 12, color: '#a78bfa', fontWeight: 600}}>{mockRequests.length} total</span>
+              </div>
+              <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
+                {recentThree.map((r, i) => (
+                  <div key={i} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+                      <div style={{width: 26, height: 26, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)'}}>{r.role[0]}</div>
+                      <span style={{fontSize: 13, color: 'rgba(255,255,255,0.85)'}}>{r.role}</span>
+                    </div>
+                    <span style={{fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                      background: r.route === 'worksome' ? 'rgba(167,139,250,0.2)' : 'rgba(251,191,36,0.2)',
+                      color: r.route === 'worksome' ? '#c4b5fd' : '#fbbf24'}}>
+                      {r.route === 'worksome' ? 'Worksome' : config.vms.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Stats row */}
+            <div style={{display: 'flex', gap: 10}}>
+              {[
+                { value: worksomeCount, label: 'Worksome', color: '#a78bfa' },
+                { value: vmsCount, label: config.vms.name, color: '#fbbf24' },
+                { value: avgSec + 's', label: 'Avg. time', color: 'white' }
+              ].map((s, i) => (
+                <div key={i} style={{flex: 1, background: 'rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center'}}>
+                  <div style={{fontSize: 20, fontWeight: 700, color: s.color}}>{s.value}</div>
+                  <div style={{fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 3, textTransform: 'uppercase', letterSpacing: 0.3}}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Watermark */}
+      <div style={{position: 'absolute', bottom: 36, left: 44, fontSize: 12, color: 'rgba(255,255,255,0.2)', zIndex: 1}}>
+        Powered by Front Door
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// CHAT PAGE (split layout)
+// ══════════════════════════════════════
+function ChatPage({ config, setPage, page }) {
+  const [messages, setMessages] = useState([]);
+  const [apiMessages, setApiMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [routeResult, setRouteResult] = useState(null);
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState(null);
+  const [quickReplies, setQuickReplies] = useState(null);
+  const chatRef = useRef(null);
+  const inputRef = useRef(null);
+
+  const scrollBottom = () => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; };
+
+  useEffect(() => { scrollBottom(); }, [messages, loading]);
+
+  const sendToAssistant = async (userText, allApiMsgs) => {
+    if (!config.api_key) { setError('Add your Anthropic API key in Settings to enable live conversations.'); return; }
+    setLoading(true);
+    setError(null);
+    setQuickReplies(null);
+    try {
+      const systemPrompt = buildSystemPrompt(config);
+      const reply = await callClaude(config.api_key, systemPrompt, allApiMsgs);
+
+      const jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
+      let cleanReply = reply;
+      if (jsonMatch) {
+        cleanReply = reply.replace(/```json[\s\S]*?```/, '').trim();
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          setRouteResult(parsed);
+        } catch {}
+      }
+
+      setMessages(prev => [...prev, { role: 'assistant', text: cleanReply, time: new Date() }]);
+      setApiMessages(prev => [...prev, { role: 'assistant', text: reply }]);
+
+      if (!jsonMatch) {
+        const qr = detectQuickReplies(cleanReply);
+        if (qr) setQuickReplies(qr);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
+
+  const startConversation = () => {
+    setStarted(true);
+    setMessages([]);
+    setApiMessages([]);
+    setRouteResult(null);
+    setError(null);
+
+    const greeting = config.branding.greeting;
+    const firstQ = "\n\nDo you already know who you'd like to work with?";
+    const fullMsg = greeting + firstQ;
+    setMessages([{ role: 'assistant', text: fullMsg, time: new Date() }]);
+    setApiMessages([{ role: 'assistant', text: fullMsg }]);
+    setQuickReplies(['Yes, I have someone in mind', 'No, I need to find someone']);
+  };
+
+  const handleSend = (overrideText) => {
+    const text = (overrideText || input).trim();
+    if (!text || loading || routeResult) return;
+    setInput('');
+    setQuickReplies(null);
+    const newUserMsg = { role: 'user', text, time: new Date() };
+    const newApiMsgs = [...apiMessages, { role: 'user', text }];
+    setMessages(prev => [...prev, newUserMsg]);
+    setApiMessages(newApiMsgs);
+    sendToAssistant(text, newApiMsgs);
+  };
+
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setError(null); setQuickReplies(null); };
+
+  const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
+
+  return (
+    <div style={{height: '100vh', display: 'flex'}}>
+      {/* Left branding panel */}
+      <LeftPanel config={config} setPage={setPage} onLogoClick={resetChat} />
+
+      {/* Right side — chat window floating on background */}
+      <div style={{flex: 1, background: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32}}>
+        <div style={{width: '100%', maxWidth: 480, height: '88vh', maxHeight: 660, background: 'white', borderRadius: 20, boxShadow: '0 12px 48px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.06)'}}>
+
+          {!started ? (
+            <div style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 36px'}}>
+              <div style={{textAlign: 'center'}}>
+                <div style={{width: 48, height: 48, background: '#1a1d23', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: 'white', fontWeight: 700, margin: '0 auto 16px'}}>
+                  {config.branding.logo_text}
+                </div>
+                <h2 style={{fontSize: 20, fontWeight: 700, marginBottom: 8}}>{config.assistant_name}</h2>
+                <p style={{fontSize: 14, color: 'var(--text-2)', marginBottom: 28, lineHeight: 1.6}}>
+                  Describe what you need and we'll get you set up with the right team or platform.
+                </p>
+                {!config.api_key && (
+                  <div style={{background: 'var(--warn-bg)', border: '1px solid var(--warn)', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: 13, color: 'var(--warn)', marginBottom: 16, textAlign: 'left'}}>
+                    Add your Anthropic API key in Settings to enable live conversations.
+                  </div>
+                )}
+                <button className="btn" style={{fontSize: 14, padding: '11px 28px', background: '#1a1d23', color: 'white', border: 'none', borderRadius: 8}} onClick={startConversation}>
+                  Start a new request
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Chat header */}
+              <div style={{padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0}}>
+                <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+                  <div style={{width: 26, height: 26, background: '#1a1d23', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white', fontWeight: 700}}>
+                    {config.branding.logo_text}
+                  </div>
+                  <span style={{fontSize: 13, fontWeight: 600}}>
+                    {routeResult ? `Routed → ${routeResult.route === 'worksome' ? 'Worksome' : config.vms.name}` : 'Intake in progress'}
+                  </span>
+                </div>
+                <button className="btn btn-sm btn-ghost" onClick={resetChat} style={{fontSize: 12}}>New request</button>
+              </div>
+
+              {/* Messages */}
+              <div ref={chatRef} style={{flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12}}>
+                {messages.map((m, i) => (
+                  <div key={i} className={`chat-msg ${m.role}`}>
+                    <div className="chat-avatar" style={{background: m.role === 'assistant' ? '#1a1d23' : '#4a90d9', width: 28, height: 28, fontSize: 11}}>
+                      {m.role === 'assistant' ? config.branding.logo_text : 'You'}
+                    </div>
+                    <div>
+                      <div className="chat-bubble" style={{whiteSpace: 'pre-wrap'}}>{m.text}</div>
+                      <div className="chat-time">{now(m.time)}</div>
+                    </div>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="chat-msg assistant">
+                    <div className="chat-avatar" style={{background: '#1a1d23', width: 28, height: 28, fontSize: 11}}>{config.branding.logo_text}</div>
+                    <div className="chat-bubble">
+                      <span className="typing-dot"></span>{' '}
+                      <span className="typing-dot"></span>{' '}
+                      <span className="typing-dot"></span>
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div style={{background: 'var(--red-bg)', border: '1px solid var(--red)', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: 13, color: 'var(--red)'}}>
+                    {error}
+                  </div>
+                )}
+
+                {quickReplies && !loading && !routeResult && (
+                  <div className="chat-options" style={{marginLeft: 38}}>
+                    {quickReplies.map((qr, i) => (
+                      <button key={i} className="chat-option" onClick={() => handleSend(qr)}>{qr}</button>
+                    ))}
+                  </div>
+                )}
+
+                {routeResult && (
+                  <div className={`route-card ${routeResult.route === 'worksome' ? 'worksome' : 'vms'}`}>
+                    <div style={{fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: routeResult.route === 'worksome' ? 'var(--accent)' : 'var(--warn)', marginBottom: 4}}>
+                      Routed → {routeResult.route === 'worksome' ? 'Worksome' : config.vms.name}
+                    </div>
+                    <div style={{fontSize: 15, fontWeight: 600, marginBottom: 4}}>{routeResult.role_title || 'Role'}</div>
+                    <div style={{fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5}}>
+                      Confidence: {routeResult.confidence} · {routeResult.known_worker ? 'Known worker' : 'Talent search'}{routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : ''}
+                    </div>
+                    <a href={routeResult.route === 'worksome' ? config.worksome_url : config.vms.url}
+                      target="_blank" rel="noopener"
+                      style={{display: 'inline-block', padding: '8px 18px', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 600, color: 'white', textDecoration: 'none',
+                        background: routeResult.route === 'worksome' ? 'var(--accent)' : 'var(--warn)'}}>
+                      Continue in {routeResult.route === 'worksome' ? 'Worksome' : config.vms.name} →
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Input bar */}
+              {!routeResult && (
+                <div style={{padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexShrink: 0}}>
+                  <input ref={inputRef} className="input" placeholder="Or type your answer..." value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSend()}
+                    disabled={loading} style={{borderRadius: 8}} />
+                  <button className="btn btn-primary" onClick={() => handleSend()} disabled={loading || !input.trim()} style={{borderRadius: 8}}>Send</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// CONFIG PAGE
+// ══════════════════════════════════════
+function ConfigPage({ config, updateConfig }) {
+  const updateBranding = (k, v) => updateConfig({ branding: {...config.branding, [k]: v} });
+  const updateVms = (k, v) => updateConfig({ vms: {...config.vms, [k]: v} });
+  const updateWeights = (k, v) => updateConfig({ weights: {...config.weights, [k]: parseInt(v) || 0} });
+
+  return (
+    <div style={{height: '100%', overflowY: 'auto', padding: '24px 32px', maxWidth: 720}}>
+      <h2 style={{fontSize: 18, fontWeight: 700, marginBottom: 20}}>Settings</h2>
+
+      {/* API Key */}
+      <div className="config-section">
+        <div className="config-section-title">Claude API</div>
+        <div className="config-row">
+          <div className="config-label">API Key</div>
+          <input className="input" type="password" value={config.api_key} placeholder="sk-ant-..."
+            onChange={e => updateConfig({ api_key: e.target.value })} />
+        </div>
+        <div style={{fontSize: 12, color: 'var(--text-3)', marginTop: -4}}>
+          Required for live conversations. Your key is stored in this browser session only.
+        </div>
+      </div>
+
+      {/* Branding */}
+      <div className="config-section">
+        <div className="config-section-title">Branding</div>
+        <div className="config-row">
+          <div className="config-label">Client Name</div>
+          <input className="input" value={config.client_name} onChange={e => updateConfig({ client_name: e.target.value })} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">Assistant Name</div>
+          <input className="input" value={config.assistant_name} onChange={e => updateConfig({ assistant_name: e.target.value })} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">Logo Text</div>
+          <input className="input" value={config.branding.logo_text} maxLength={3} style={{width: 80}}
+            onChange={e => updateBranding('logo_text', e.target.value)} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">Primary Colour</div>
+          <div style={{display: 'flex', gap: 8, alignItems: 'center'}}>
+            <input type="color" value={config.branding.primary_color} style={{width: 36, height: 30, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', padding: 2}}
+              onChange={e => updateBranding('primary_color', e.target.value)} />
+            <input className="input" value={config.branding.primary_color} style={{width: 100, fontFamily: 'var(--mono)', fontSize: 12}}
+              onChange={e => updateBranding('primary_color', e.target.value)} />
+          </div>
+        </div>
+        <div className="config-row" style={{alignItems: 'start'}}>
+          <div className="config-label" style={{marginTop: 8}}>Greeting</div>
+          <textarea className="input" value={config.branding.greeting} rows={2}
+            onChange={e => updateBranding('greeting', e.target.value)} />
+        </div>
+      </div>
+
+      {/* Left Panel */}
+      <div className="config-section">
+        <div className="config-section-title">Left Panel</div>
+        <div style={{fontSize: 12, color: 'var(--text-3)', marginBottom: 14}}>
+          Customise the welcome panel. Add a logo image and hero image, or leave blank to show live stats cards.
+        </div>
+        <div className="config-row">
+          <div className="config-label">Logo Image URL</div>
+          <input className="input" value={config.branding.logo_url || ''} placeholder="https://... (replaces logo text)"
+            onChange={e => updateBranding('logo_url', e.target.value)} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">Hero Image URL</div>
+          <input className="input" value={config.branding.hero_image_url || ''} placeholder="https://... (replaces stats cards)"
+            onChange={e => updateBranding('hero_image_url', e.target.value)} />
+        </div>
+        {(config.branding.hero_image_url || config.branding.logo_url) && (
+          <div style={{display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap'}}>
+            {config.branding.logo_url && (
+              <div style={{border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 8}}>
+                <div style={{fontSize: 11, color: 'var(--text-3)', marginBottom: 4}}>Logo preview</div>
+                <img src={config.branding.logo_url} alt="Logo" style={{height: 32, objectFit: 'contain'}}
+                  onError={e => e.target.style.display = 'none'} />
+              </div>
+            )}
+            {config.branding.hero_image_url && (
+              <div style={{border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 8}}>
+                <div style={{fontSize: 11, color: 'var(--text-3)', marginBottom: 4}}>Hero preview</div>
+                <img src={config.branding.hero_image_url} alt="Hero" style={{height: 80, objectFit: 'contain', borderRadius: 4}}
+                  onError={e => e.target.style.display = 'none'} />
+              </div>
+            )}
+          </div>
+        )}
+        <div className="config-row" style={{marginTop: 14}}>
+          <div className="config-label">Headline</div>
+          <input className="input" value={config.branding.headline || ''} placeholder={`Default: Welcome to ${config.assistant_name}`}
+            onChange={e => updateBranding('headline', e.target.value)} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">Subheadline</div>
+          <input className="input" value={config.branding.subheadline || ''} placeholder="Default: Tell us what you need..."
+            onChange={e => updateBranding('subheadline', e.target.value)} />
+        </div>
+      </div>
+
+      {/* VMS */}
+      <div className="config-section">
+        <div className="config-section-title">VMS Provider</div>
+        <div className="config-row">
+          <div className="config-label">VMS Name</div>
+          <input className="input" value={config.vms.name} placeholder="e.g. Beeline, Fieldglass, Coupa"
+            onChange={e => updateVms('name', e.target.value)} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">VMS URL</div>
+          <input className="input" value={config.vms.url} onChange={e => updateVms('url', e.target.value)} />
+        </div>
+        <div className="config-row">
+          <div className="config-label">Worksome URL</div>
+          <input className="input" value={config.worksome_url} onChange={e => updateConfig({ worksome_url: e.target.value })} />
+        </div>
+      </div>
+
+      {/* Weights */}
+      <div className="config-section">
+        <div className="config-section-title">Signal Weights</div>
+        {Object.entries(config.weights).map(([k, v]) => (
+          <div className="config-row" key={k}>
+            <div className="config-label">{k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
+            <input className="input" type="number" min="0" max="5" value={v} style={{width: 70}}
+              onChange={e => updateWeights(k, e.target.value)} />
+          </div>
+        ))}
+      </div>
+
+      {/* Knockouts */}
+      <div className="config-section">
+        <div className="config-section-title">Knockout Signals</div>
+        <div className="config-row" style={{alignItems: 'start'}}>
+          <div className="config-label" style={{marginTop: 8}}>→ VMS</div>
+          <textarea className="input" rows={2} value={config.knockouts.vms.join(', ')}
+            onChange={e => updateConfig({ knockouts: {...config.knockouts, vms: e.target.value.split(',').map(s => s.trim()).filter(Boolean)} })} />
+        </div>
+        <div className="config-row" style={{alignItems: 'start'}}>
+          <div className="config-label" style={{marginTop: 8}}>→ Worksome</div>
+          <textarea className="input" rows={2} value={config.knockouts.worksome.join(', ')}
+            onChange={e => updateConfig({ knockouts: {...config.knockouts, worksome: e.target.value.split(',').map(s => s.trim()).filter(Boolean)} })} />
+        </div>
+      </div>
+
+      {/* Approval Gates */}
+      <div className="config-section">
+        <div className="config-section-title">Approval Gates</div>
+        {config.approval_gates.map((g, i) => (
+          <div key={i} style={{display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center'}}>
+            <span style={{fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap'}}>If</span>
+            <input className="input input-sm" value={g.condition}
+              onChange={e => { const gates = [...config.approval_gates]; gates[i] = {...g, condition: e.target.value}; updateConfig({ approval_gates: gates }); }} />
+            <span style={{fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap'}}>→</span>
+            <input className="input input-sm" value={g.action}
+              onChange={e => { const gates = [...config.approval_gates]; gates[i] = {...g, action: e.target.value}; updateConfig({ approval_gates: gates }); }} />
+            <button className="btn btn-sm btn-danger" onClick={() => { const gates = config.approval_gates.filter((_, j) => j !== i); updateConfig({ approval_gates: gates }); }}>×</button>
+          </div>
+        ))}
+        <button className="btn btn-sm" onClick={() => updateConfig({ approval_gates: [...config.approval_gates, { condition: '', action: '' }] })}>
+          + Add gate
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// SVG CHART HELPERS
+// ══════════════════════════════════════
+function SvgBarChart({ data, barKeys, colors, labels, height = 220 }) {
+  const maxVal = Math.max(...data.flatMap(d => barKeys.map(k => d[k])));
+  const w = 500, h = height - 40, pad = { top: 10, right: 20, bottom: 30, left: 35 };
+  const plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+  const groupW = plotW / data.length;
+  const barW = Math.min(groupW * 0.35, 28);
+  const yTicks = [0, Math.round(maxVal / 2), maxVal];
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${h}`} style={{width: '100%', height: height - 20}}>
+        {yTicks.map(t => {
+          const y = pad.top + plotH - (t / maxVal) * plotH;
+          return <g key={t}><line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="#e2e5ea" strokeDasharray="3 3" /><text x={pad.left - 6} y={y + 4} textAnchor="end" fontSize="11" fill="#9ba3b0">{t}</text></g>;
+        })}
+        {data.map((d, i) => {
+          const cx = pad.left + groupW * i + groupW / 2;
+          return (
+            <g key={i}>
+              <text x={cx} y={h - 6} textAnchor="middle" fontSize="11" fill="#9ba3b0">{d.week}</text>
+              {barKeys.map((k, ki) => {
+                const bh = (d[k] / maxVal) * plotH;
+                const bx = cx - barKeys.length * barW / 2 + ki * (barW + 2);
+                return <rect key={k} x={bx} y={pad.top + plotH - bh} width={barW} height={bh} rx="3" fill={colors[ki]} />;
+              })}
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{display: 'flex', gap: 16, justifyContent: 'center'}}>
+        {barKeys.map((k, i) => (
+          <div key={k} style={{display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#5f6776'}}>
+            <div style={{width: 10, height: 10, borderRadius: 2, background: colors[i]}} />
+            {labels[i]}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SvgDonut({ slices, size = 160 }) {
+  const total = slices.reduce((a, s) => a + s.value, 0);
+  const r = 55, ir = 35, cx = size / 2, cy = size / 2;
+  let cum = 0;
+  const paths = slices.map((s, i) => {
+    const frac = s.value / total;
+    const startAngle = cum * 2 * Math.PI - Math.PI / 2;
+    cum += frac;
+    const endAngle = cum * 2 * Math.PI - Math.PI / 2;
+    const large = frac > 0.5 ? 1 : 0;
+    const x1 = cx + r * Math.cos(startAngle), y1 = cy + r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle), y2 = cy + r * Math.sin(endAngle);
+    const ix1 = cx + ir * Math.cos(endAngle), iy1 = cy + ir * Math.sin(endAngle);
+    const ix2 = cx + ir * Math.cos(startAngle), iy2 = cy + ir * Math.sin(startAngle);
+    const d = `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${ix1} ${iy1} A ${ir} ${ir} 0 ${large} 0 ${ix2} ${iy2} Z`;
+    return <path key={i} d={d} fill={s.color} />;
+  });
+
+  return (
+    <div style={{textAlign: 'center'}}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{paths}</svg>
+      <div style={{display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8}}>
+        {slices.map((s, i) => (
+          <div key={i} style={{display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#5f6776'}}>
+            <div style={{width: 10, height: 10, borderRadius: 2, background: s.color}} />
+            {s.label} ({s.value})
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SvgLineChart({ data, dataKey, height = 180 }) {
+  const vals = data.map(d => d[dataKey]);
+  const maxVal = Math.max(...vals), minVal = Math.min(...vals);
+  const range = maxVal - minVal || 1;
+  const w = 500, h = height - 30, pad = { top: 10, right: 20, bottom: 30, left: 35 };
+  const plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+  const points = data.map((d, i) => ({
+    x: pad.left + (i / (data.length - 1)) * plotW,
+    y: pad.top + plotH - ((d[dataKey] - minVal) / range) * plotH
+  }));
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const yTicks = [minVal, Math.round((minVal + maxVal) / 2), maxVal];
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width: '100%', height: height}}>
+      {yTicks.map(t => {
+        const y = pad.top + plotH - ((t - minVal) / range) * plotH;
+        return <g key={t}><line x1={pad.left} y1={y} x2={w - pad.right} y2={y} stroke="#e2e5ea" strokeDasharray="3 3" /><text x={pad.left - 6} y={y + 4} textAnchor="end" fontSize="11" fill="#9ba3b0">{t}</text></g>;
+      })}
+      {data.map((d, i) => (
+        <text key={i} x={points[i].x} y={h - 4} textAnchor="middle" fontSize="11" fill="#9ba3b0">{d.week}</text>
+      ))}
+      <path d={linePath} fill="none" stroke="#6b3fa0" strokeWidth="2" />
+      {points.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="4" fill="#6b3fa0" />)}
+    </svg>
+  );
+}
+
+// ══════════════════════════════════════
+// ANALYTICS PAGE
+// ══════════════════════════════════════
+function AnalyticsPage({ config }) {
+  const worksomeCount = mockRequests.filter(r => r.route === 'worksome').length;
+  const vmsCount = mockRequests.filter(r => r.route === 'vms').length;
+  const avgSec = Math.round(mockRequests.reduce((a, r) => a + parseInt(r.duration), 0) / mockRequests.length);
+
+  return (
+    <div style={{height: '100%', overflowY: 'auto', padding: '24px 32px'}}>
+      <h2 style={{fontSize: 18, fontWeight: 700, marginBottom: 20}}>Analytics</h2>
+
+      {/* Stats row */}
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24}}>
+        <div className="stat-card">
+          <div className="stat-value">{mockRequests.length}</div>
+          <div className="stat-label">Total requests</div>
+          <div className="stat-change up">↑ 12% vs last week</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{color: 'var(--accent)'}}>{worksomeCount}</div>
+          <div className="stat-label">→ Worksome</div>
+          <div className="stat-change up">↑ 8%</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{color: 'var(--warn)'}}>{vmsCount}</div>
+          <div className="stat-label">→ {config.vms.name}</div>
+          <div className="stat-change down">↓ 3%</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{avgSec}s</div>
+          <div className="stat-label">Avg. intake time</div>
+          <div className="stat-change up">↑ 15% faster</div>
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 24}}>
+        <div className="stat-card">
+          <div style={{fontSize: 13, fontWeight: 600, marginBottom: 16}}>Weekly volume by route</div>
+          <SvgBarChart data={weeklyVolume} barKeys={['worksome','vms']} colors={['#6b3fa0','#b45309']} labels={['Worksome', config.vms.name]} />
+        </div>
+        <div className="stat-card">
+          <div style={{fontSize: 13, fontWeight: 600, marginBottom: 16}}>Routing split</div>
+          <SvgDonut slices={[{value: worksomeCount, color: '#6b3fa0', label: 'Worksome'}, {value: vmsCount, color: '#b45309', label: config.vms.name}]} />
+        </div>
+      </div>
+
+      <div className="stat-card" style={{marginBottom: 24}}>
+        <div style={{fontSize: 13, fontWeight: 600, marginBottom: 16}}>Avg. intake duration (seconds)</div>
+        <SvgLineChart data={avgDuration} dataKey="seconds" />
+      </div>
+
+      {/* Recent requests table */}
+      <div className="stat-card">
+        <div style={{fontSize: 13, fontWeight: 600, marginBottom: 16}}>Recent requests</div>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Role</th>
+              <th>Manager</th>
+              <th>Route</th>
+              <th>Confidence</th>
+              <th>Status</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mockRequests.map(r => (
+              <tr key={r.id}>
+                <td>{r.date}</td>
+                <td style={{fontWeight: 500}}>{r.role}</td>
+                <td>{r.manager}</td>
+                <td><span className={`badge ${r.route === 'worksome' ? 'badge-green' : 'badge-orange'}`}>
+                  {r.route === 'worksome' ? 'Worksome' : config.vms.name}
+                </span></td>
+                <td><span className={`badge ${r.confidence === 'high' ? 'badge-blue' : 'badge-gray'}`}>{r.confidence}</span></td>
+                <td style={{fontSize: 12, color: 'var(--text-2)'}}>{r.status.replace(/_/g, ' ')}</td>
+                <td style={{fontFamily: 'var(--mono)', fontSize: 12}}>{r.duration}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

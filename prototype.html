@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Front Door — Intake Orchestrator</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #1a1d23;
+    --text-secondary: #5f6776;
+    --text-muted: #9ba3b0;
+    --accent: #1a6b50;
+    --accent-bg: #eaf5f0;
+    --warn: #b45309;
+    --warn-bg: #fef3e2;
+    --blue: #2563eb;
+    --blue-bg: #eff6ff;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    --radius: 6px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+
+  /* Header */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-logo {
+    width: 32px; height: 32px; background: var(--accent); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: white; font-weight: 700;
+  }
+  .header-title { font-size: 15px; font-weight: 600; }
+  .header-sub { font-size: 12px; color: var(--text-muted); }
+  .header-right { display: flex; gap: 8px; }
+  .config-btn {
+    font-family: var(--font); font-size: 12px; font-weight: 500;
+    padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-secondary); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .config-btn:hover { background: var(--bg); }
+  .config-btn.active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+  .reset-btn {
+    font-family: var(--font); font-size: 12px; font-weight: 500;
+    padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-secondary); cursor: pointer;
+  }
+  .reset-btn:hover { background: #fef2f2; color: #dc2626; border-color: #dc2626; }
+
+  /* Layout */
+  .main { flex: 1; display: flex; overflow: hidden; }
+  .chat-panel { flex: 1; display: flex; flex-direction: column; }
+  .side-panel {
+    width: 380px; background: var(--surface); border-left: 1px solid var(--border);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  .side-panel.open { display: flex; }
+
+  /* Chat */
+  .chat-area {
+    flex: 1; overflow-y: auto; padding: 24px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .msg { max-width: 560px; display: flex; flex-direction: column; gap: 4px; }
+  .msg.assistant { align-self: flex-start; }
+  .msg.user { align-self: flex-end; }
+  .msg-bubble {
+    padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.5;
+  }
+  .msg.assistant .msg-bubble {
+    background: var(--surface); border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .msg.user .msg-bubble {
+    background: var(--accent); color: white;
+    border-bottom-right-radius: 4px;
+  }
+  .msg-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+  .msg.user .msg-label { text-align: right; }
+
+  /* Options */
+  .options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .option-btn {
+    font-family: var(--font); font-size: 13px; font-weight: 500;
+    padding: 8px 16px; border-radius: 20px; border: 1.5px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .option-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+  /* Free text input */
+  .input-area {
+    padding: 16px 24px; background: var(--surface); border-top: 1px solid var(--border);
+    display: none;
+  }
+  .input-area.active { display: flex; gap: 8px; }
+  .text-input {
+    flex: 1; font-family: var(--font); font-size: 14px; padding: 10px 14px;
+    border: 1.5px solid var(--border); border-radius: var(--radius);
+    outline: none; transition: border-color 0.15s;
+  }
+  .text-input:focus { border-color: var(--accent); }
+  .send-btn {
+    font-family: var(--font); font-size: 13px; font-weight: 600;
+    padding: 10px 20px; border-radius: var(--radius); border: none;
+    background: var(--accent); color: white; cursor: pointer;
+  }
+  .send-btn:hover { opacity: 0.9; }
+
+  /* Routing result */
+  .route-card {
+    margin-top: 8px; padding: 16px; border-radius: 8px;
+    border: 1.5px solid; max-width: 560px;
+  }
+  .route-card.worksome { border-color: var(--accent); background: var(--accent-bg); }
+  .route-card.beeline { border-color: var(--warn); background: var(--warn-bg); }
+  .route-label { font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 6px; }
+  .route-card.worksome .route-label { color: var(--accent); }
+  .route-card.beeline .route-label { color: var(--warn); }
+  .route-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .route-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+  /* Side panel */
+  .side-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .side-title { font-size: 13px; font-weight: 600; }
+  .side-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+  .side-tab {
+    font-family: var(--font); font-size: 12px; font-weight: 500;
+    padding: 10px 16px; border: none; background: none; color: var(--text-muted);
+    cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .side-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .side-content { flex: 1; overflow-y: auto; padding: 16px; }
+
+  /* JSON display */
+  .json-block {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6;
+    background: #1a1d23; color: #e2e5ea; padding: 16px; border-radius: 8px;
+    overflow-x: auto; white-space: pre;
+  }
+  .json-key { color: #7dd3fc; }
+  .json-string { color: #fde68a; }
+  .json-number { color: #a5f3fc; }
+  .json-bool { color: #f9a8d4; }
+  .json-null { color: #9ba3b0; }
+
+  /* Config form */
+  .config-group { margin-bottom: 16px; }
+  .config-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+  .config-input {
+    font-family: var(--font); font-size: 13px; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    width: 100%; outline: none;
+  }
+  .config-input:focus { border-color: var(--accent); }
+  .config-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .config-chip {
+    font-size: 11px; padding: 4px 10px; border-radius: 12px;
+    background: var(--bg); border: 1px solid var(--border); color: var(--text-secondary);
+  }
+
+  /* Signals tracker */
+  .signal-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .signal-row:last-child { border-bottom: none; }
+  .signal-name { font-size: 12px; font-weight: 500; flex: 1; }
+  .signal-bar { display: flex; gap: 2px; align-items: center; }
+  .signal-dot { width: 8px; height: 8px; border-radius: 2px; background: var(--border); }
+  .signal-dot.w { background: var(--accent); }
+  .signal-dot.b { background: var(--warn); }
+  .signal-score { font-size: 11px; font-weight: 600; min-width: 20px; text-align: center; }
+  .signal-score.w { color: var(--accent); }
+  .signal-score.b { color: var(--warn); }
+
+  /* Typing indicator */
+  .typing { display: flex; gap: 4px; padding: 4px 0; }
+  .typing-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted);
+    animation: blink 1.4s infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+  /* Scrollbar */
+  .chat-area::-webkit-scrollbar, .side-content::-webkit-scrollbar { width: 6px; }
+  .chat-area::-webkit-scrollbar-thumb, .side-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="header-logo" id="headerLogo">W</div>
+    <div>
+      <div class="header-title" id="brandName">Front Door</div>
+      <div class="header-sub">Intake Orchestrator</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <button class="config-btn" id="configToggle" onclick="togglePanel('config')">Client Config</button>
+    <button class="config-btn" id="signalsToggle" onclick="togglePanel('signals')">Routing Signals</button>
+    <button class="config-btn" id="payloadToggle" onclick="togglePanel('payload')">API Payload</button>
+    <button class="reset-btn" onclick="resetConversation()">Reset</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="chat-panel">
+    <div class="chat-area" id="chatArea"></div>
+    <div class="input-area" id="inputArea">
+      <input type="text" class="text-input" id="textInput" placeholder="Describe the role or project..." onkeydown="if(event.key==='Enter')submitFreeText()">
+      <button class="send-btn" onclick="submitFreeText()">Send</button>
+    </div>
+  </div>
+
+  <div class="side-panel" id="sidePanel">
+    <div class="side-tabs">
+      <button class="side-tab active" id="tabConfig" onclick="switchTab('config')">Config</button>
+      <button class="side-tab" id="tabSignals" onclick="switchTab('signals')">Signals</button>
+      <button class="side-tab" id="tabPayload" onclick="switchTab('payload')">Payload</button>
+    </div>
+    <div class="side-content" id="sideContent"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+const state = {
+  path: null,        // 'fast' or 'discovery'
+  step: 'q1',
+  answers: {},
+  signals: { worksome: 0, beeline: 0 },
+  signalLog: [],
+  route: null,
+  confidence: null,
+  knockout: null,
+  sideTab: 'config',
+  panelOpen: false
+};
+
+const config = {
+  client_name: 'Worksome',
+  assistant_name: 'Worksome Hiring Hub',
+  branding: {
+    logo_text: 'W',
+    primary_color: '#1a6b50',
+    primary_bg: '#eaf5f0',
+    greeting: "Hi! I'm here to help you find the right talent. Let's get started."
+  },
+  routes: ['worksome', 'vms'],
+  vms: {
+    name: 'Beeline',
+    url: 'https://beeline.com',
+    api_type: 'REST',
+    api_endpoint: '/api/v2/requisitions'
+  },
+  custom_questions: [],
+  knockout_rules: [],
+  approval_gates: [
+    { if: 'spend > 100000', require: 'procurement_review' }
+  ],
+  weight_overrides: {},
+  geo_rules: []
+};
+
+// ── Branding ──
+function applyBranding() {
+  const b = config.branding;
+  document.documentElement.style.setProperty('--accent', b.primary_color);
+  document.documentElement.style.setProperty('--accent-bg', b.primary_bg);
+  document.getElementById('brandName').textContent = config.assistant_name;
+  const logo = document.getElementById('headerLogo');
+  logo.textContent = b.logo_text;
+  logo.style.background = b.primary_color;
+}
+
+// ── Chat ──
+const chatArea = document.getElementById('chatArea');
+
+function addMessage(role, text, delay = 400) {
+  return new Promise(resolve => {
+    if (role === 'assistant') {
+      const typing = document.createElement('div');
+      typing.className = 'msg assistant';
+      typing.innerHTML = `<div class="msg-label">${config.assistant_name}</div><div class="msg-bubble"><div class="typing"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div>`;
+      chatArea.appendChild(typing);
+      chatArea.scrollTop = chatArea.scrollHeight;
+      setTimeout(() => {
+        typing.remove();
+        appendMsg(role, text);
+        resolve();
+      }, delay);
+    } else {
+      appendMsg(role, text);
+      resolve();
+    }
+  });
+}
+
+function appendMsg(role, html) {
+  const div = document.createElement('div');
+  div.className = `msg ${role}`;
+  const label = role === 'assistant' ? config.assistant_name : 'You';
+  div.innerHTML = `<div class="msg-label">${label}</div><div class="msg-bubble">${html}</div>`;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function showOptions(options) {
+  const div = document.createElement('div');
+  div.className = 'options';
+  div.id = 'currentOptions';
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.className = 'option-btn';
+    btn.textContent = opt.label;
+    btn.onclick = () => {
+      div.remove();
+      hideInput();
+      addMessage('user', opt.label).then(() => opt.action());
+    };
+    div.appendChild(btn);
+  });
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function showInput() {
+  document.getElementById('inputArea').classList.add('active');
+  setTimeout(() => document.getElementById('textInput').focus(), 100);
+}
+
+function hideInput() {
+  document.getElementById('inputArea').classList.remove('active');
+}
+
+function submitFreeText() {
+  const input = document.getElementById('textInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  hideInput();
+  const opts = document.getElementById('currentOptions');
+  if (opts) opts.remove();
+  addMessage('user', text).then(() => handleFreeText(text));
+}
+
+// ── Flow Logic ──
+async function start() {
+  applyBranding();
+  await addMessage('assistant', config.branding.greeting, 600);
+  await askQ1();
+}
+
+async function askQ1() {
+  state.step = 'q1';
+  await addMessage('assistant', 'Do you already know who you\'d like to work with?');
+  showOptions([
+    { label: 'Yes, I have someone in mind', action: () => handleQ1('yes') },
+    { label: 'No, I need to find someone', action: () => handleQ1('no') }
+  ]);
+}
+
+async function handleQ1(answer) {
+  state.answers.known_worker = answer === 'yes';
+  if (answer === 'yes') {
+    state.path = 'fast';
+    await askQ1b();
+  } else {
+    state.path = 'discovery';
+    await askQ2();
+  }
+  updateSidePanel();
+}
+
+async function askQ1b() {
+  state.step = 'q1b';
+  await addMessage('assistant', 'Great — is this person replacing someone on your team, or are they coming in for a specific project?');
+  showOptions([
+    { label: 'Replacing someone on my team', action: () => handleQ1b('replace') },
+    { label: 'A specific project', action: () => handleQ1b('project') }
+  ]);
+}
+
+async function handleQ1b(answer) {
+  state.answers.replacement = answer === 'replace';
+  if (answer === 'project') {
+    addSignal('Known worker + project', 'worksome', 5, true);
+    await routeTo('worksome', 'high', null, 'known_worker + project-based deliverable');
+  } else {
+    await askQ1c();
+  }
+}
+
+async function askQ1c() {
+  state.step = 'q1c';
+  await addMessage('assistant', 'Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?');
+  showOptions([
+    { label: 'Yes, I\'ll manage them directly', action: () => handleQ1c('yes') },
+    { label: 'No, they\'ll work independently', action: () => handleQ1c('no') }
+  ]);
+}
+
+async function handleQ1c(answer) {
+  state.answers.sdc_present = answer === 'yes';
+  if (answer === 'yes') {
+    addSignal('SDC present (supervision, direction, control)', 'beeline', 5, true);
+    await routeTo('beeline', 'high', null, 'replacement + SDC present');
+  } else {
+    addSignal('Replacement but autonomous', 'worksome', 5, true);
+    await routeTo('worksome', 'high', null, 'replacement + no SDC — independent consultant');
+  }
+}
+
+// ── Discovery Flow ──
+async function askQ2() {
+  state.step = 'q2';
+  await addMessage('assistant', 'Tell me about the work you need done — what\'s the role or project?');
+  showInput();
+}
+
+function handleFreeText(text) {
+  if (state.step === 'q2') handleQ2(text);
+}
+
+async function handleQ2(text) {
+  state.answers.description = text;
+  state.answers.role_title = extractRole(text);
+  state.answers.skills = extractSkills(text);
+
+  // Check knockouts
+  const lower = text.toLowerCase();
+  if (/\bagency\b|\bstaffing firm\b|\btemp workers?\b|\btemps\b/.test(lower)) {
+    addSignal('Knockout: agency/temp mention', 'beeline', 0, false);
+    state.knockout = 'agency/temp keyword detected';
+    await routeTo('beeline', 'high', 'agency/temp keyword detected', 'knockout: agency/temp mention');
+    return;
+  }
+  if (/\bfreelancer\b|\bindependent consultant\b|\b(statement of work|sow)\b/.test(lower)) {
+    addSignal('Knockout: freelancer/SOW mention', 'worksome', 0, false);
+    state.knockout = 'freelancer/SOW keyword detected';
+    await routeTo('worksome', 'high', 'freelancer/SOW keyword detected', 'knockout: freelancer/SOW mention');
+    return;
+  }
+
+  await askQ3();
+}
+
+async function askQ3() {
+  state.step = 'q3';
+  await addMessage('assistant', 'Is this for a specific project with a defined deliverable, or do you need ongoing support for your team?');
+  showOptions([
+    { label: 'Specific project / deliverable', action: () => handleQ3('deliverable') },
+    { label: 'Ongoing team support', action: () => handleQ3('ongoing') }
+  ]);
+}
+
+async function handleQ3(answer) {
+  state.answers.deliverables_or_ongoing = answer;
+  const w = getWeight('deliverable_or_ongoing', 3);
+  if (answer === 'deliverable') {
+    addSignal('Q3: Project-based deliverable', 'worksome', w);
+  } else {
+    addSignal('Q3: Ongoing team support', 'beeline', w);
+  }
+  updateSidePanel();
+  await askQ4();
+}
+
+async function askQ4() {
+  state.step = 'q4';
+  await addMessage('assistant', 'How long do you expect this to last?');
+  showOptions([
+    { label: 'Under 3 months', action: () => handleQ4('short', 'Under 3 months') },
+    { label: '3–6 months', action: () => handleQ4('medium', '3-6 months') },
+    { label: '6+ months', action: () => handleQ4('long', '6+ months') },
+    { label: 'Indefinitely', action: () => handleQ4('indefinite', 'Indefinite') }
+  ]);
+}
+
+async function handleQ4(answer, label) {
+  state.answers.duration = label;
+  const w = getWeight('duration', 2);
+  if (answer === 'short' || answer === 'medium') {
+    addSignal(`Q4: ${label}`, 'worksome', w);
+  } else {
+    addSignal(`Q4: ${label}`, 'beeline', w);
+  }
+  updateSidePanel();
+  await askQ5();
+}
+
+async function askQ5() {
+  state.step = 'q5';
+  await addMessage('assistant', 'How many people do you need?');
+  showOptions([
+    { label: '1 person', action: () => handleQ5(1) },
+    { label: '2–3 people', action: () => handleQ5(3) },
+    { label: '4–9 people', action: () => handleQ5(5) },
+    { label: '10+ people', action: () => handleQ5(10) }
+  ]);
+}
+
+async function handleQ5(count) {
+  state.answers.headcount = count;
+  const w = getWeight('headcount', 2);
+
+  if (count >= 10) {
+    addSignal('Knockout: 10+ identical roles', 'beeline', 0, false);
+    state.knockout = '10+ identical roles requested';
+    await routeTo('beeline', 'high', '10+ identical roles requested', 'knockout: high-volume request');
+    return;
+  }
+
+  if (count <= 3) {
+    addSignal(`Q5: ${count === 1 ? '1 specialist' : '2-3 people'}`, 'worksome', w);
+  } else {
+    addSignal(`Q5: ${count} people`, 'beeline', w);
+  }
+  updateSidePanel();
+
+  // Check if route is clear
+  const diff = Math.abs(state.signals.worksome - state.signals.beeline);
+  const max = Math.max(state.signals.worksome, state.signals.beeline);
+  if (max >= 5) {
+    const route = state.signals.worksome > state.signals.beeline ? 'worksome' : 'beeline';
+    await routeTo(route, 'high', null, 'weighted score');
+  } else if (diff <= 1) {
+    await askQ6();
+  } else {
+    const route = state.signals.worksome > state.signals.beeline ? 'worksome' : 'beeline';
+    await routeTo(route, 'medium', null, 'weighted score');
+  }
+}
+
+async function askQ6() {
+  state.step = 'q6';
+  await addMessage('assistant', 'Would you prefer to pay for specific deliverables — like a finished product or milestone — or on an hourly or daily rate?');
+  showOptions([
+    { label: 'Pay per deliverable / milestone', action: () => handleQ6('milestone') },
+    { label: 'Hourly or daily rate', action: () => handleQ6('hourly') }
+  ]);
+}
+
+async function handleQ6(answer) {
+  state.answers.payment_model = answer;
+  if (answer === 'milestone') {
+    addSignal('Q6: Milestone/deliverable payment', 'worksome', 1);
+  } else {
+    addSignal('Q6: Hourly/daily rate', 'beeline', 1);
+  }
+  updateSidePanel();
+
+  const diff = Math.abs(state.signals.worksome - state.signals.beeline);
+  if (diff <= 1) {
+    await askQ7();
+  } else {
+    const route = state.signals.worksome > state.signals.beeline ? 'worksome' : 'beeline';
+    await routeTo(route, 'medium', null, 'weighted score after tiebreaker');
+  }
+}
+
+async function askQ7() {
+  state.step = 'q7';
+  await addMessage('assistant', 'Last one — will you be managing this person\'s day-to-day work? Setting tasks, supervising their schedule, directing how things get done?');
+  showOptions([
+    { label: 'Yes, I\'ll manage them', action: () => handleQ7('yes') },
+    { label: 'No, they\'ll work independently', action: () => handleQ7('no') }
+  ]);
+}
+
+async function handleQ7(answer) {
+  state.answers.sdc_present = answer === 'yes';
+  if (answer === 'yes') {
+    addSignal('Q7: SDC present', 'beeline', 1);
+  } else {
+    addSignal('Q7: No SDC — independent', 'worksome', 1);
+  }
+  updateSidePanel();
+
+  const route = state.signals.worksome >= state.signals.beeline ? 'worksome' : 'beeline';
+  const conf = Math.abs(state.signals.worksome - state.signals.beeline) >= 2 ? 'high' : 'medium';
+  await routeTo(route, conf, null, 'weighted score after all tiebreakers');
+}
+
+// ── Routing ──
+async function routeTo(route, confidence, knockout, decisive) {
+  state.route = route;
+  state.confidence = confidence;
+  updateSidePanel();
+
+  if (route === 'worksome') {
+    await addMessage('assistant', 'Perfect — I\'ve got everything I need. I\'m setting this up for you now.');
+    const card = document.createElement('div');
+    card.className = 'route-card worksome';
+    card.innerHTML = `
+      <div class="route-label">Routed → Worksome</div>
+      <div class="route-title">${state.answers.role_title || 'Role'} — Project Engagement</div>
+      <div class="route-desc">This has been set up as a ${state.answers.known_worker ? 'direct engagement' : 'talent search'} on Worksome. ${state.answers.known_worker ? '<a href="https://sandbox.worksome.com/login" target="_blank" style="color:var(--accent);font-weight:600;text-decoration:underline;">Continue in Worksome →</a> to select your worker, create the job, complete the compliance check, and generate the contract.' : '<a href="https://sandbox.worksome.com/login" target="_blank" style="color:var(--accent);font-weight:600;text-decoration:underline;">Continue in Worksome →</a> to create the job, publish it, and review candidates as they come in.'}</div>
+    `;
+    chatArea.appendChild(card);
+  } else {
+    await addMessage('assistant', 'Perfect — I\'ve got everything I need. I\'m setting this up for you now.');
+    const card = document.createElement('div');
+    card.className = 'route-card beeline';
+    card.innerHTML = `
+      <div class="route-label">Routed → ${config.vms.name} (VMS)</div>
+      <div class="route-title">${state.answers.role_title || 'Role'} — Staff Requisition</div>
+      <div class="route-desc">A requisition has been created in ${config.vms.name} for ${state.answers.headcount || 1} position${(state.answers.headcount || 1) > 1 ? 's' : ''}. Your approved suppliers will be notified and can start submitting candidates.</div>
+    `;
+    chatArea.appendChild(card);
+  }
+  chatArea.scrollTop = chatArea.scrollHeight;
+
+  // Show payload panel
+  togglePanel('payload');
+  switchTab('payload');
+}
+
+// ── Signals ──
+function addSignal(name, route, weight, isKnockout = false) {
+  state.signalLog.push({ name, route, weight, isKnockout });
+  if (!isKnockout) {
+    state.signals[route] += weight;
+  }
+}
+
+function getWeight(signal, defaultW) {
+  return config.weight_overrides[signal] ?? defaultW;
+}
+
+// ── Helpers ──
+function extractRole(text) {
+  const lower = text.toLowerCase();
+  const roles = [
+    'designer', 'developer', 'engineer', 'architect', 'analyst', 'manager',
+    'consultant', 'writer', 'marketer', 'data scientist', 'product manager',
+    'project manager', 'devops', 'qa', 'tester', 'recruiter', 'admin',
+    'accountant', 'lawyer', 'researcher'
+  ];
+  for (const r of roles) {
+    if (lower.includes(r)) {
+      return r.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+    }
+  }
+  const words = text.split(' ').slice(0, 4).join(' ');
+  return words.length > 30 ? words.substring(0, 30) + '...' : words;
+}
+
+function extractSkills(text) {
+  const lower = text.toLowerCase();
+  const skillMap = {
+    'design': 'Design', 'brand': 'Branding', 'ux': 'UX Design', 'ui': 'UI Design',
+    'react': 'React', 'node': 'Node.js', 'python': 'Python', 'java': 'Java',
+    'data': 'Data Analysis', 'marketing': 'Marketing', 'seo': 'SEO',
+    'writing': 'Content Writing', 'copywriting': 'Copywriting',
+    'devops': 'DevOps', 'cloud': 'Cloud Infrastructure', 'aws': 'AWS',
+    'machine learning': 'Machine Learning', 'ai': 'AI/ML'
+  };
+  const found = [];
+  for (const [key, val] of Object.entries(skillMap)) {
+    if (lower.includes(key)) found.push(val);
+  }
+  return found.length > 0 ? found : ['General'];
+}
+
+function buildPayload() {
+  const routing = {
+    route: state.route || 'pending',
+    confidence: state.confidence || 'pending',
+    approval_required: null,
+    intake_summary: {
+      role_title: state.answers.role_title || null,
+      description: state.answers.description || null,
+      skills: state.answers.skills || [],
+      deliverables_or_ongoing: state.answers.deliverables_or_ongoing || null,
+      duration: state.answers.duration || null,
+      headcount: state.answers.headcount || 1,
+      payment_model: state.answers.payment_model || null,
+      sdc_present: state.answers.sdc_present ?? null,
+      location: null,
+      known_worker: state.answers.known_worker ?? false,
+      replacement: state.answers.replacement ?? null
+    },
+    routing_signals: {
+      knockout_triggered: state.knockout,
+      score_worksome: state.signals.worksome,
+      score_beeline: state.signals.beeline,
+      decisive_signal: state.route ? 'See signal log' : 'pending'
+    },
+    client_fields: {}
+  };
+  return routing;
+}
+
+function syntaxHighlight(json) {
+  return json
+    .replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")\s*:/g, '<span class="json-key">$1</span>:')
+    .replace(/:\s*("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*")/g, ': <span class="json-string">$1</span>')
+    .replace(/:\s*(\d+)/g, ': <span class="json-number">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+}
+
+// ── Side Panel ──
+function togglePanel(tab) {
+  const panel = document.getElementById('sidePanel');
+  if (panel.classList.contains('open') && state.sideTab === tab) {
+    panel.classList.remove('open');
+    state.panelOpen = false;
+    document.querySelectorAll('.config-btn').forEach(b => b.classList.remove('active'));
+  } else {
+    panel.classList.add('open');
+    state.panelOpen = true;
+    switchTab(tab);
+  }
+}
+
+function switchTab(tab) {
+  state.sideTab = tab;
+  document.querySelectorAll('.side-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab' + tab[0].toUpperCase() + tab.slice(1)).classList.add('active');
+  document.querySelectorAll('.config-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(tab + 'Toggle').classList.add('active');
+  updateSidePanel();
+}
+
+function updateSidePanel() {
+  const content = document.getElementById('sideContent');
+  if (state.sideTab === 'config') {
+    content.innerHTML = `
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);">Branding</div>
+      <div class="config-group">
+        <div class="config-label">Client Name</div>
+        <input class="config-input" value="${config.client_name}" onchange="config.client_name=this.value">
+      </div>
+      <div class="config-group">
+        <div class="config-label">Assistant Name</div>
+        <input class="config-input" value="${config.assistant_name}" onchange="config.assistant_name=this.value; document.getElementById('brandName').textContent=this.value">
+      </div>
+      <div class="config-group">
+        <div class="config-label">Logo Text</div>
+        <input class="config-input" value="${config.branding.logo_text}" maxlength="3" style="width:60px;" onchange="config.branding.logo_text=this.value; applyBranding();">
+      </div>
+      <div class="config-group">
+        <div class="config-label">Primary Colour</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="color" value="${config.branding.primary_color}" style="width:36px;height:30px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px;" onchange="config.branding.primary_color=this.value; applyBranding(); this.nextElementSibling.value=this.value;">
+          <input class="config-input" value="${config.branding.primary_color}" style="width:100px;font-family:var(--mono);font-size:12px;" onchange="config.branding.primary_color=this.value; applyBranding(); this.previousElementSibling.value=this.value;">
+        </div>
+      </div>
+      <div class="config-group">
+        <div class="config-label">Background Tint</div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="color" value="${config.branding.primary_bg}" style="width:36px;height:30px;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px;" onchange="config.branding.primary_bg=this.value; applyBranding(); this.nextElementSibling.value=this.value;">
+          <input class="config-input" value="${config.branding.primary_bg}" style="width:100px;font-family:var(--mono);font-size:12px;" onchange="config.branding.primary_bg=this.value; applyBranding(); this.previousElementSibling.value=this.value;">
+        </div>
+      </div>
+      <div class="config-group">
+        <div class="config-label">Greeting Message</div>
+        <textarea class="config-input" rows="2" style="resize:vertical;" onchange="config.branding.greeting=this.value">${config.branding.greeting}</textarea>
+      </div>
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-top:20px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);">Routing</div>
+      <div class="config-group">
+        <div class="config-label">Routes</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="config-chip">Worksome</span>
+          <span class="config-chip" style="background:var(--warn-bg);border-color:var(--warn);color:var(--warn);">${config.vms.name} (VMS)</span>
+        </div>
+      </div>
+      <div class="config-group">
+        <div class="config-label">VMS Provider</div>
+        <input class="config-input" value="${config.vms.name}" onchange="config.vms.name=this.value; updateSidePanel();" placeholder="e.g. Beeline, Fieldglass, Coupa">
+      </div>
+      <div class="config-group">
+        <div class="config-label">VMS URL</div>
+        <input class="config-input" value="${config.vms.url}" onchange="config.vms.url=this.value;" placeholder="e.g. https://beeline.com">
+      </div>
+      <div class="config-group">
+        <div class="config-label">Signal Weights</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.8;">
+          <div>Deliverable vs Ongoing: <strong>${getWeight('deliverable_or_ongoing', 3)}</strong></div>
+          <div>Duration: <strong>${getWeight('duration', 2)}</strong></div>
+          <div>Headcount: <strong>${getWeight('headcount', 2)}</strong></div>
+          <div>Payment model: <strong>1</strong> (tiebreaker)</div>
+          <div>SDC check: <strong>1</strong> (tiebreaker)</div>
+        </div>
+      </div>
+      <div class="config-group">
+        <div class="config-label">Knockout Rules</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.8;">
+          <div>→ VMS: "agency," "temp," 10+ heads</div>
+          <div>→ Worksome: "freelancer," "SOW," "fixed bid"</div>
+        </div>
+      </div>
+      <div class="config-group">
+        <div class="config-label">Approval Gates</div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.8;">
+          ${config.approval_gates.map(g => `<div>If ${g.if} → ${g.require}</div>`).join('')}
+        </div>
+      </div>
+    `;
+  } else if (state.sideTab === 'signals') {
+    if (state.signalLog.length === 0) {
+      content.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:20px 0;text-align:center;">Signals will appear here as the conversation progresses.</div>';
+    } else {
+      let html = '<div style="margin-bottom:16px;">';
+      // Score bar
+      const total = state.signals.worksome + state.signals.beeline || 1;
+      const wPct = Math.round((state.signals.worksome / total) * 100);
+      const bPct = 100 - wPct;
+      html += `
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:12px;font-weight:600;color:var(--accent);">Worksome: ${state.signals.worksome}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--warn);">${config.vms.name}: ${state.signals.beeline}</span>
+        </div>
+        <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--border);">
+          <div style="width:${wPct}%;background:var(--accent);transition:width 0.3s;"></div>
+          <div style="width:${bPct}%;background:var(--warn);transition:width 0.3s;"></div>
+        </div>
+      `;
+      html += '</div>';
+
+      // Signal log
+      state.signalLog.forEach(s => {
+        const color = s.route === 'worksome' ? 'var(--accent)' : 'var(--warn)';
+        const badge = s.isKnockout
+          ? `<span style="font-size:10px;font-weight:600;color:white;background:${color};padding:2px 8px;border-radius:10px;">KNOCKOUT</span>`
+          : `<span style="font-size:11px;font-weight:600;color:${color};">+${s.weight}</span>`;
+        html += `<div class="signal-row">
+          <div class="signal-name">${s.name}</div>
+          ${badge}
+        </div>`;
+      });
+
+      if (state.route) {
+        const rColor = state.route === 'worksome' ? 'var(--accent)' : 'var(--warn)';
+        html += `<div style="margin-top:16px;padding:12px;border-radius:8px;background:${state.route === 'worksome' ? 'var(--accent-bg)' : 'var(--warn-bg)'};border:1px solid ${rColor};">
+          <div style="font-size:11px;font-weight:700;color:${rColor};text-transform:uppercase;letter-spacing:0.6px;">Decision</div>
+          <div style="font-size:14px;font-weight:600;margin-top:4px;">→ ${state.route.charAt(0).toUpperCase() + state.route.slice(1)}</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Confidence: ${state.confidence}</div>
+        </div>`;
+      }
+      content.innerHTML = html;
+    }
+  } else if (state.sideTab === 'payload') {
+    const payload = buildPayload();
+    if (!state.route) {
+      content.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:20px 0;text-align:center;">The API payload will appear here once routing is complete.</div>';
+    } else {
+      const jsonStr = JSON.stringify(payload, null, 2);
+      const apiSteps = buildApiPayload();
+      let apiHtml = '';
+      if (state.route === 'worksome') {
+        apiSteps.forEach((step, i) => {
+          const statusColor = step._status === 'ready' ? 'var(--accent)' : 'var(--text-muted)';
+          const statusIcon = step._status === 'ready' ? '●' : '○';
+          const label = step._label;
+          const note = step._note || '';
+          const mutation = step._mutation;
+          const stepPayload = {...step};
+          delete stepPayload._label; delete stepPayload._note; delete stepPayload._mutation; delete stepPayload._status;
+          apiHtml += `
+            <div style="margin-top:${i===0?0:16}px;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <span style="color:${statusColor};font-size:14px;">${statusIcon}</span>
+                <span style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;">Step ${i+1}: ${label}</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;margin-left:20px;font-family:var(--mono);">${mutation}</div>
+              <div class="json-block">${syntaxHighlight(JSON.stringify(stepPayload, null, 2))}</div>
+              ${note ? `<div style="font-size:11px;color:var(--warn);margin-top:4px;padding:6px 8px;background:var(--warn-bg);border-radius:4px;">${note}</div>` : ''}
+            </div>`;
+        });
+      } else {
+        apiHtml = `
+          <div style="margin-top:0;">
+            <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${config.vms.name} ${config.vms.api_type} — Create Requisition</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;font-family:var(--mono);">POST /api/v2/requisitions</div>
+            <div class="json-block">${syntaxHighlight(JSON.stringify(apiSteps, null, 2))}</div>
+          </div>`;
+      }
+      content.innerHTML = `
+        <div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">Routing Decision</div>
+        <div class="json-block">${syntaxHighlight(jsonStr)}</div>
+        <div style="margin-top:20px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">${state.route === 'worksome' ? 'Worksome — API Sequence' : config.vms.name + ' ' + config.vms.api_type + ' — API Payload'}</div>
+        ${apiHtml}
+      `;
+    }
+  }
+}
+
+function buildApiPayload() {
+  if (state.route === 'worksome') {
+    const steps = [];
+    const role = state.answers.role_title || 'Role';
+    const skills = state.answers.skills || ['General'];
+    const desc = state.answers.description || '';
+    const isKnown = state.answers.known_worker;
+
+    // Step 1: Routing decision captured
+    steps.push({
+      _label: 'Routing Decision Captured',
+      _mutation: '→ Front Door intake complete',
+      _status: 'ready',
+      intake_data: {
+        role_title: role,
+        description: desc,
+        skills: skills,
+        duration: state.answers.duration || null,
+        payment_model: state.answers.payment_model || null,
+        headcount: state.answers.headcount || 1,
+        known_worker: isKnown,
+        sdc_present: state.answers.sdc_present ?? null
+      }
+    });
+
+    if (isKnown) {
+      // Known worker: manager does everything in Worksome
+      steps.push({
+        _label: 'Hand Off → Worksome',
+        _mutation: '→ Deep link to Worksome',
+        _status: 'ready',
+        _note: 'The manager completes the full workflow inside Worksome. No API calls are made by the Front Door.',
+        deep_link: 'https://sandbox.worksome.com/login',
+        manager_steps_in_worksome: [
+          '1. Select worker from talent pool — or invite by email if not there yet',
+          '2. Create the job with role details',
+          '3. Answer compliance / classification questions',
+          '4. Generate the contract'
+        ]
+      });
+
+      steps.push({
+        _label: 'Listen for Webhook',
+        _mutation: '→ Webhook: contract-accepted',
+        _status: 'ready',
+        _note: 'Front Door listens for the contract-accepted webhook to confirm the engagement is live and log it in the audit store.',
+        webhook_event: 'contract-accepted',
+        on_received: 'Log completion in audit store'
+      });
+    } else {
+      // Talent search: manager also works in Worksome
+      steps.push({
+        _label: 'Hand Off → Worksome',
+        _mutation: '→ Deep link to Worksome',
+        _status: 'ready',
+        _note: 'The manager creates the job in Worksome, then reviews candidates as they come in.',
+        deep_link: 'https://sandbox.worksome.com/login',
+        manager_steps_in_worksome: [
+          '1. Create the job with role details',
+          '2. Publish to marketplace or invite candidates',
+          '3. Review and shortlist candidates',
+          '4. Select worker → compliance → contract'
+        ]
+      });
+
+      steps.push({
+        _label: 'Listen for Webhook',
+        _mutation: '→ Webhook: contract-accepted',
+        _status: 'ready',
+        _note: 'Front Door listens for the contract-accepted webhook to confirm the engagement is live.',
+        webhook_event: 'contract-accepted',
+        on_received: 'Log completion in audit store'
+      });
+    }
+
+    return steps;
+  } else {
+    return {
+      requisition: {
+        title: state.answers.role_title || 'Role',
+        description: state.answers.description || '',
+        jobCategory: '{{mapped_from_taxonomy}}',
+        requisitionType: state.answers.deliverables_or_ongoing === 'deliverable' ? 'SOW' : 'STAFF_AUG',
+        numberOfPositions: state.answers.headcount || 1,
+        estimatedDuration: state.answers.duration || null,
+        rateType: 'HOURLY',
+        maxBillRate: null,
+        currency: '{{client_default_currency}}',
+        location: { remoteAllowed: true },
+        hiringManager: {
+          name: '{{session_user_name}}',
+          email: '{{session_user_email}}',
+          department: '{{from client_fields or null}}'
+        },
+        costCenter: '{{from client_fields or null}}',
+        approvalStatus: 'APPROVED',
+        metadata: {
+          source: 'front-door',
+          routing_confidence: state.confidence,
+          client_id: config.client_name,
+          intake_session_id: '{{session_id}}'
+        }
+      }
+    };
+  }
+}
+
+function resetConversation() {
+  state.path = null;
+  state.step = 'q1';
+  state.answers = {};
+  state.signals = { worksome: 0, beeline: 0 };
+  state.signalLog = [];
+  state.route = null;
+  state.confidence = null;
+  state.knockout = null;
+  chatArea.innerHTML = '';
+  hideInput();
+  updateSidePanel();
+  start();
+}
+
+// ── Init ──
+start();
+</script>
+</body>
+</html>

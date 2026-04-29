@@ -1,0 +1,14 @@
+{
+  "name": "front-door-slack-bot",
+  "version": "1.0.0",
+  "description": "Front Door intake bot for Slack",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^3.17.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "dotenv": "^16.4.0"
+  }
+}
