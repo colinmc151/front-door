@@ -5,6 +5,24 @@ const fetch = require("node-fetch");
 const WORKSOME_API_URL = process.env.WORKSOME_API_URL || "https://general-api.sand.aws.worksome.com/graphql";
 const WORKSOME_API_TOKEN = process.env.WORKSOME_API_TOKEN;
 
+// Cache the account ID so we only fetch it once
+let _cachedAccountId = null;
+
+async function getAccountId() {
+  if (_cachedAccountId) return _cachedAccountId;
+  try {
+    const data = await graphql(`{ accounts { id name } }`);
+    const accounts = data.accounts || [];
+    if (accounts.length > 0) {
+      _cachedAccountId = accounts[0].id;
+      console.log(`[Worksome] Using account: ${accounts[0].name} (${_cachedAccountId})`);
+    }
+  } catch (err) {
+    console.warn(`[Worksome] Failed to fetch accounts: ${err.message}`);
+  }
+  return _cachedAccountId;
+}
+
 async function graphql(query, variables = {}) {
   if (!WORKSOME_API_TOKEN) {
     throw new Error("WORKSOME_API_TOKEN not configured");
@@ -34,9 +52,13 @@ async function graphql(query, variables = {}) {
 
 // ─── Search talent pool by name ─────────────────────────────
 async function searchWorkers(name) {
+  const accountId = await getAccountId();
+
+  // Build query with optional account scope
+  const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
   const query = `
     query SearchWorkers($search: String!) {
-      trustedContacts(search: $search, first: 5) {
+      trustedContacts(search: $search${accountFilter}, first: 5) {
         data {
           id
           worker {
@@ -52,7 +74,7 @@ async function searchWorkers(name) {
   `;
 
   try {
-    console.log(`[Worksome] Searching talent pool for: "${name}"`);
+    console.log(`[Worksome] Searching talent pool for: "${name}" (account: ${accountId || 'all'})`);
     const data = await graphql(query, { search: name });
     const raw = data.trustedContacts?.data || [];
 
@@ -91,6 +113,8 @@ async function searchWorkers(name) {
 
 // ─── Step 1: Create a job ───────────────────────────────────
 async function createJob(routeResult) {
+  const accountId = await getAccountId();
+
   const query = `
     mutation CreateJob($input: CreateJobInput!) {
       createJob(input: $input) {
@@ -104,6 +128,11 @@ async function createJob(routeResult) {
   const input = {
     name: routeResult.role_title || "New Role",
   };
+
+  // Company ID is required
+  if (accountId) {
+    input.company = accountId;
+  }
 
   // Add skills if available
   if (routeResult.skills && routeResult.skills.length > 0) {
