@@ -93,6 +93,37 @@ async function updateJob(jobId, routeResult) {
   return data.updateJob;
 }
 
+// ─── Step 3: Invite a known worker (createTrustedContact) ───
+async function inviteWorker(routeResult) {
+  if (!routeResult.worker_email) return null;
+
+  const query = `
+    mutation CreateTrustedContact($input: CreateTrustedContactInput!) {
+      createTrustedContact(input: $input) {
+        id
+        status
+      }
+    }
+  `;
+
+  const variables = {
+    input: {
+      email: routeResult.worker_email,
+      name: routeResult.worker_name || null,
+    },
+  };
+
+  try {
+    const data = await graphql(query, variables);
+    console.log(`[Worksome] Worker invited: ${routeResult.worker_email} → ${data.createTrustedContact.id}`);
+    return data.createTrustedContact;
+  } catch (err) {
+    // Worker might already be in the talent pool — that's fine
+    console.warn(`[Worksome] Worker invite skipped: ${err.message}`);
+    return null;
+  }
+}
+
 // ─── Main handoff function ──────────────────────────────────
 // Creates a draft job in Worksome from the intake data
 // Returns the job ID and URL so the manager can continue there
@@ -113,11 +144,19 @@ async function handoff(routeResult) {
     updatedJob = job;
   }
 
+  // Step 3: If known worker, invite them to the talent pool
+  let worker = null;
+  if (routeResult.known_worker && routeResult.worker_email) {
+    worker = await inviteWorker(routeResult);
+  }
+
   return {
     job_id: updatedJob.id || job.id,
     job_url: updatedJob.url || null,
     status: updatedJob.status || job.status,
     title: routeResult.role_title,
+    worker_invited: worker ? true : false,
+    worker_name: routeResult.worker_name || null,
   };
 }
 

@@ -185,12 +185,14 @@ Conduct a short intake interview to understand what the manager needs, then gath
 - If YES → Path A (Fast Track)
 - If NO → Path B (Discovery)
 
-### Path A: Fast Track
-Q1b: "Great — is this person replacing someone on your team, or are they coming in for a specific project?"
+### Path A: Fast Track (Known Worker)
+Q1b: "Great — what's their name?"
+Q1c: "And what's their email address? I'll need it to get them set up."
+Q1d: "Is this person replacing someone on your team, or are they coming in for a specific project?"
 - PROJECT → Route decided: worksome → go to Phase 2
-- REPLACE → Ask Q1c
+- REPLACE → Ask Q1e
 
-Q1c: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
+Q1e: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
 - YES (SDC present) → Route decided: vms → go to Phase 2
 - NO (autonomous) → Route decided: worksome → go to Phase 2
 
@@ -233,7 +235,7 @@ The VMS for this client is: ${cfg.vms.name}
 ## Output
 When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -674,6 +676,9 @@ function ChatPage({ config, setPage, page }) {
                       {isWorksome && handoffResult && handoffResult.job_id && (
                         <div style={{fontSize: 12, color: 'var(--accent)', marginBottom: 8}}>
                           Draft job created in Worksome (ID: {handoffResult.job_id})
+                          {handoffResult.worker_invited && handoffResult.worker_name && (
+                            <span> · {handoffResult.worker_name} invited to talent pool</span>
+                          )}
                         </div>
                       )}
 
