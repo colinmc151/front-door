@@ -231,40 +231,71 @@ async function inviteWorker(routeResult) {
   }
 }
 
+// ─── Build the Worksome URL based on context ───────────────
+const WORKSOME_BASE_URL = process.env.WORKSOME_URL ? process.env.WORKSOME_URL.replace('/login', '') : 'https://sandbox.worksome.com';
+
+function buildWorksomeUrl(routeResult, jobId) {
+  // Known worker with ID → go straight to direct hire page
+  if (routeResult.known_worker && routeResult.worker_id && routeResult.worker_found !== false) {
+    return `${WORKSOME_BASE_URL}/profile/${routeResult.worker_id}/hire`;
+  }
+  // Job was created → link to jobs page
+  if (jobId) {
+    return `${WORKSOME_BASE_URL}/jobs`;
+  }
+  // Fallback
+  return `${WORKSOME_BASE_URL}/login`;
+}
+
 // ─── Main handoff function ──────────────────────────────────
-// Creates a draft job in Worksome from the intake data
-// Returns the job ID and URL so the manager can continue there
+// Routes to the right Worksome page and optionally creates a job
 async function handoff(routeResult) {
-  console.log(`[Worksome] Creating job: ${routeResult.role_title}`);
+  console.log(`[Worksome] Handoff: ${routeResult.role_title} (known_worker: ${routeResult.known_worker}, worker_id: ${routeResult.worker_id || 'none'})`);
 
-  // Step 1: Create the job
-  const job = await createJob(routeResult);
-  console.log(`[Worksome] Job created: ${job.id} (${job.status})`);
+  let job = null;
+  let updatedJob = null;
 
-  // Step 2: Update with full details
-  let updatedJob;
-  try {
-    updatedJob = await updateJob(job.id, routeResult);
-    console.log(`[Worksome] Job updated: ${updatedJob.id} — ${updatedJob.url || "no URL yet"}`);
-  } catch (err) {
-    console.warn(`[Worksome] Job update failed (non-fatal): ${err.message}`);
-    updatedJob = job;
+  // For known workers found in the pool, the hire page handles job creation
+  // For discovery flow or new workers, create the job via API
+  const skipJobCreation = routeResult.known_worker && routeResult.worker_id && routeResult.worker_found !== false;
+
+  if (!skipJobCreation) {
+    try {
+      // Step 1: Create the job
+      job = await createJob(routeResult);
+      console.log(`[Worksome] Job created: ${job.id}`);
+
+      // Step 2: Update with full details
+      try {
+        updatedJob = await updateJob(job.id, routeResult);
+        console.log(`[Worksome] Job updated: ${updatedJob.id}`);
+      } catch (err) {
+        console.warn(`[Worksome] Job update failed (non-fatal): ${err.message}`);
+        updatedJob = job;
+      }
+    } catch (err) {
+      console.warn(`[Worksome] Job creation failed (non-fatal): ${err.message}`);
+    }
+  } else {
+    console.log(`[Worksome] Skipping job creation — known worker, hire page will handle it`);
   }
 
-  // Step 3: If known worker with email, invite them to the talent pool
-  // This covers both "found in pool" and "not found, details collected" cases
+  // Step 3: If new worker (not found), invite them to the talent pool
   let worker = null;
-  if (routeResult.worker_email) {
+  if (routeResult.worker_found === false && routeResult.worker_email) {
     worker = await inviteWorker(routeResult);
   }
 
+  const jobId = updatedJob?.id || job?.id || null;
+
   return {
-    job_id: updatedJob.id || job.id,
-    job_url: updatedJob.url || null,
-    status: updatedJob.status || job.status,
+    job_id: jobId,
+    job_url: buildWorksomeUrl(routeResult, jobId),
+    status: updatedJob?.status || job?.status || "routed",
     title: routeResult.role_title,
     worker_invited: worker ? true : false,
     worker_name: routeResult.worker_name || null,
+    worker_id: routeResult.worker_id || null,
   };
 }
 
