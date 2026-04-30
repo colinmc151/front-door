@@ -136,6 +136,7 @@ const defaultConfig = {
   branding: { logo_text: 'W', primary_color: '#1a1d23', greeting: "Hi! I'm here to help you find the right talent. Let's get started.", logo_url: '', hero_image_url: '', headline: '', subheadline: '' },
   vms: { name: 'Beeline', url: 'https://beeline.com', api_type: 'REST' },
   worksome_url: 'https://sandbox.worksome.com/login',
+  worksome_talent_pool_url: 'https://sandbox.worksome.com/contacts',
   weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
   knockouts: {
     vms: ['agency', 'staffing firm', 'temp workers', 'temps'],
@@ -713,6 +714,9 @@ function ChatPage({ config, setPage, page }) {
                   }
                   // Worker not found — redirect to talent pool
                   const isRedirect = isWorksome && routeResult.worker_found === false;
+                  if (isRedirect) {
+                    destUrl = config.worksome_talent_pool_url || config.worksome_url;
+                  }
 
                   return (
                     <div className={`route-card ${isWorksome ? 'worksome' : 'vms'}`}>

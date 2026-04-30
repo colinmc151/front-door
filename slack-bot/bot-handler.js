@@ -6,6 +6,7 @@ const config = {
   assistant_name: process.env.ASSISTANT_NAME || "Worksome Hiring Hub",
   vms: { name: process.env.VMS_NAME || "Beeline" },
   worksome_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
+  worksome_talent_pool_url: process.env.WORKSOME_TALENT_POOL_URL || "https://sandbox.worksome.com/contacts",
   vms_url: process.env.VMS_URL || "https://beeline.com",
   weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
   knockouts: {
@@ -153,8 +154,12 @@ function buildBlocks(text, quickReplies, routeResult) {
     let url = isWorksome ? config.worksome_url : config.vms_url;
     const headcount = routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : "";
 
+    // Worker not found — redirect to talent pool
+    if (isWorksome && routeResult.worker_found === false) {
+      url = config.worksome_talent_pool_url;
+    }
     // If routed to Worksome and handoff data is available, use the job URL
-    if (isWorksome && routeResult._handoff && routeResult._handoff.job_url) {
+    else if (isWorksome && routeResult._handoff && routeResult._handoff.job_url) {
       url = routeResult._handoff.job_url;
     }
 
