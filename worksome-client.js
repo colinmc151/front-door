@@ -1,5 +1,6 @@
 // Worksome GraphQL API client
 // Creates draft jobs from Front Door intake data
+const fetch = require("node-fetch");
 
 const WORKSOME_API_URL = process.env.WORKSOME_API_URL || "https://api.sandbox.worksome.com/graphql";
 const WORKSOME_API_TOKEN = process.env.WORKSOME_API_TOKEN;
@@ -8,6 +9,8 @@ async function graphql(query, variables = {}) {
   if (!WORKSOME_API_TOKEN) {
     throw new Error("WORKSOME_API_TOKEN not configured");
   }
+
+  console.log(`[Worksome] GraphQL request to ${WORKSOME_API_URL}`);
 
   const res = await fetch(WORKSOME_API_URL, {
     method: "POST",
@@ -45,8 +48,21 @@ async function searchWorkers(name) {
   `;
 
   try {
+    console.log(`[Worksome] Searching talent pool for: "${name}"`);
     const data = await graphql(query, { search: name });
     const contacts = data.trustedContacts?.data || [];
+    console.log(`[Worksome] Search "${name}" returned ${contacts.length} result(s):`, contacts.map(c => c.name));
+
+    // If full name returned nothing, try last name only (some APIs match on single terms better)
+    if (contacts.length === 0 && name.includes(' ')) {
+      const lastName = name.split(' ').pop();
+      console.log(`[Worksome] Retrying with last name only: "${lastName}"`);
+      const retryData = await graphql(query, { search: lastName });
+      const retryContacts = retryData.trustedContacts?.data || [];
+      console.log(`[Worksome] Retry "${lastName}" returned ${retryContacts.length} result(s):`, retryContacts.map(c => c.name));
+      return retryContacts;
+    }
+
     return contacts;
   } catch (err) {
     console.warn(`[Worksome] Worker search failed: ${err.message}`);
@@ -64,8 +80,11 @@ async function searchWorkers(name) {
           }
         }
       `;
+      console.log(`[Worksome] Trying alt query for: "${name}"`);
       const altData = await graphql(altQuery, { search: name });
-      return altData.workers?.data || [];
+      const altContacts = altData.workers?.data || [];
+      console.log(`[Worksome] Alt search returned ${altContacts.length} result(s)`);
+      return altContacts;
     } catch (altErr) {
       console.warn(`[Worksome] Alt worker search also failed: ${altErr.message}`);
       return [];
