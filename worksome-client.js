@@ -293,26 +293,15 @@ async function handoff(routeResult) {
     console.log(`[Worksome] Skipping job creation — known worker, hire page will handle it`);
   }
 
-  // Step 3: If new worker (not found), invite them to the talent pool
-  let worker = null;
-  let newWorkerId = null;
-  if (routeResult.worker_found === false && routeResult.worker_email) {
-    worker = await inviteWorker(routeResult);
-    // Get the new worker's ID so we can link to their hire page
-    if (worker && worker.worker) {
-      newWorkerId = worker.worker.id;
-      console.log(`[Worksome] New worker ID: ${newWorkerId}`);
-    }
-  }
-
   const jobId = updatedJob?.id || job?.id || null;
-  // For new workers, use their new worker ID for the hire URL
-  const effectiveWorkerId = routeResult.worker_id || newWorkerId;
 
-  // Build the URL — if we have a worker ID (existing or newly created), go to hire page
+  // Build the URL based on context
   let jobUrl;
-  if (effectiveWorkerId) {
-    jobUrl = `${WORKSOME_BASE_URL}/profile/${effectiveWorkerId}/hire`;
+  if (routeResult.worker_found === false) {
+    // New worker — send manager to trusted contacts to invite them
+    jobUrl = `${WORKSOME_BASE_URL}/contacts`;
+  } else if (routeResult.worker_id) {
+    jobUrl = `${WORKSOME_BASE_URL}/profile/${routeResult.worker_id}/hire`;
   } else {
     jobUrl = buildWorksomeUrl(routeResult, jobId);
   }
@@ -322,9 +311,9 @@ async function handoff(routeResult) {
     job_url: jobUrl,
     status: updatedJob?.status || job?.status || "routed",
     title: routeResult.role_title,
-    worker_invited: worker ? true : false,
+    worker_invited: false,
     worker_name: routeResult.worker_name || null,
-    worker_id: effectiveWorkerId || null,
+    worker_id: routeResult.worker_id || null,
   };
 }
 

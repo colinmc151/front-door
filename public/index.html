@@ -743,12 +743,8 @@ function ChatPage({ config, setPage, page }) {
                   if (isWorksome && handoffResult && handoffResult.job_url) {
                     destUrl = handoffResult.job_url;
                   }
-                  // Worker not found but details collected — API should have invited them and returned hire URL
+                  // Worker not found but details collected — send to trusted contacts to invite
                   const isNewWorker = isWorksome && routeResult.worker_found === false && routeResult.worker_email;
-                  // If handoff didn't return a worker-specific URL, fall back to contacts
-                  if (isNewWorker && !(handoffResult && handoffResult.job_url && handoffResult.worker_id)) {
-                    destUrl = config.worksome_talent_pool_url || config.worksome_url;
-                  }
                   // Worker not found and no details — fallback to talent pool
                   const isRedirect = isWorksome && routeResult.worker_found === false && !routeResult.worker_email;
                   if (isRedirect) {
@@ -763,7 +759,7 @@ function ChatPage({ config, setPage, page }) {
                       <div style={{fontSize: 15, fontWeight: 600, marginBottom: 4}}>{routeResult.role_title || 'Role'}</div>
                       <div style={{fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5}}>
                         {isNewWorker ? (
-                          `${routeResult.worker_first_name || routeResult.worker_name || 'Worker'} ${routeResult.worker_last_name || ''} invited — ready to hire`
+                          `Click below to invite ${routeResult.worker_first_name || routeResult.worker_name || 'your worker'} ${routeResult.worker_last_name || ''} to the talent pool`
                         ) : isRedirect ? (
                           `Search the talent pool for ${routeResult.worker_name || 'your worker'}`
                         ) : (
@@ -792,7 +788,7 @@ function ChatPage({ config, setPage, page }) {
                       <a href={destUrl}
                         target="_blank" rel="noopener"
                         style={{display: 'inline-block', padding: '8px 18px', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 600, color: 'white', textDecoration: 'none', background: color}}>
-                        {isRedirect ? 'Search talent pool →' : isNewWorker ? 'Hire in Worksome →' : `Continue in ${dest} →`}
+                        {isRedirect ? 'Search talent pool →' : isNewWorker ? 'Invite to talent pool →' : `Continue in ${dest} →`}
                       </a>
                     </div>
                   );
