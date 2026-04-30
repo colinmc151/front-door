@@ -180,9 +180,12 @@ async function updateJob(jobId, routeResult) {
     }
   }
 
-  // Add start date if available
+  // Add start date if available (convert to ISO format YYYY-MM-DD)
   if (routeResult.start_date && routeResult.start_date !== "asap" && routeResult.start_date !== "null") {
-    input.startDate = routeResult.start_date;
+    const parsed = new Date(routeResult.start_date);
+    if (!isNaN(parsed.getTime())) {
+      input.startDate = parsed.toISOString().split('T')[0];
+    }
   }
 
   const data = await graphql(query, { input });
@@ -212,6 +215,10 @@ async function inviteWorker(routeResult) {
   // Build the input with all available worker details
   const input = {
     email: routeResult.worker_email,
+    links: [],
+    attachments: [],
+    origin: "COMPANY",
+    originChannel: "WEB",
   };
 
   // Account/company is likely required

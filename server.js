@@ -90,6 +90,19 @@ app.post("/api/handoff/worksome", async (req, res) => {
   }
 });
 
+// ─── Debug: introspect enums ──────────────────────────
+app.get("/api/debug-enums", async (req, res) => {
+  const results = {};
+  const enumNames = ["TrustedContactOrigin", "TrustedContactOriginChannel"];
+  for (const name of enumNames) {
+    try {
+      const d = await worksome.graphql(`{ __type(name: "${name}") { enumValues { name description } } }`);
+      results[name] = d.__type?.enumValues || [];
+    } catch (e) { results[name + "_error"] = e.message; }
+  }
+  res.json(results);
+});
+
 // ─── Debug: test different GraphQL query shapes ──────
 app.get("/api/debug-search", async (req, res) => {
   const name = req.query.name || "Sterling";
