@@ -189,15 +189,22 @@ async function updateJob(jobId, routeResult) {
   return data.updateJob;
 }
 
-// ─── Step 3: Invite a known worker (createTrustedContact) ───
+// ─── Step 3: Invite a new worker (createTrustedContact) ─────
 async function inviteWorker(routeResult) {
   if (!routeResult.worker_email) return null;
+
+  const accountId = await getAccountId();
 
   const query = `
     mutation CreateTrustedContact($input: CreateTrustedContactInput!) {
       createTrustedContact(input: $input) {
         id
         status
+        worker {
+          id
+          name
+          email
+        }
       }
     }
   `;
@@ -207,10 +214,12 @@ async function inviteWorker(routeResult) {
     email: routeResult.worker_email,
   };
 
-  // Use first/last name if available, fall back to full name
+  // Account/company is likely required
+  if (accountId) input.company = accountId;
+
+  // Use first/last name
   if (routeResult.worker_first_name) input.firstName = routeResult.worker_first_name;
   if (routeResult.worker_last_name) input.lastName = routeResult.worker_last_name;
-  if (!input.firstName && routeResult.worker_name) input.name = routeResult.worker_name;
 
   // Add country if provided
   if (routeResult.worker_country) input.country = routeResult.worker_country;
@@ -221,12 +230,13 @@ async function inviteWorker(routeResult) {
   }
 
   try {
+    console.log(`[Worksome] Inviting worker: ${routeResult.worker_first_name || ''} ${routeResult.worker_last_name || ''} (${routeResult.worker_email})`);
     const data = await graphql(query, { input });
-    console.log(`[Worksome] Worker invited: ${routeResult.worker_email} → ${data.createTrustedContact.id}`);
-    return data.createTrustedContact;
+    const tc = data.createTrustedContact;
+    console.log(`[Worksome] Worker invited: ${routeResult.worker_email} → TC: ${tc.id}, Worker: ${tc.worker?.id || 'n/a'}`);
+    return tc;
   } catch (err) {
-    // Worker might already be in the talent pool — that's fine
-    console.warn(`[Worksome] Worker invite skipped: ${err.message}`);
+    console.warn(`[Worksome] Worker invite failed: ${err.message}`);
     return null;
   }
 }
@@ -278,20 +288,36 @@ async function handoff(routeResult) {
 
   // Step 3: If new worker (not found), invite them to the talent pool
   let worker = null;
+  let newWorkerId = null;
   if (routeResult.worker_found === false && routeResult.worker_email) {
     worker = await inviteWorker(routeResult);
+    // Get the new worker's ID so we can link to their hire page
+    if (worker && worker.worker) {
+      newWorkerId = worker.worker.id;
+      console.log(`[Worksome] New worker ID: ${newWorkerId}`);
+    }
   }
 
   const jobId = updatedJob?.id || job?.id || null;
+  // For new workers, use their new worker ID for the hire URL
+  const effectiveWorkerId = routeResult.worker_id || newWorkerId;
+
+  // Build the URL — if we have a worker ID (existing or newly created), go to hire page
+  let jobUrl;
+  if (effectiveWorkerId) {
+    jobUrl = `${WORKSOME_BASE_URL}/profile/${effectiveWorkerId}/hire`;
+  } else {
+    jobUrl = buildWorksomeUrl(routeResult, jobId);
+  }
 
   return {
     job_id: jobId,
-    job_url: buildWorksomeUrl(routeResult, jobId),
+    job_url: jobUrl,
     status: updatedJob?.status || job?.status || "routed",
     title: routeResult.role_title,
     worker_invited: worker ? true : false,
     worker_name: routeResult.worker_name || null,
-    worker_id: routeResult.worker_id || null,
+    worker_id: effectiveWorkerId || null,
   };
 }
 
