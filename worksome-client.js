@@ -29,6 +29,50 @@ async function graphql(query, variables = {}) {
   return data.data;
 }
 
+// ─── Search talent pool by name ─────────────────────────────
+async function searchWorkers(name) {
+  const query = `
+    query SearchWorkers($search: String!) {
+      trustedContacts(search: $search, first: 5) {
+        data {
+          id
+          name
+          email
+          title
+        }
+      }
+    }
+  `;
+
+  try {
+    const data = await graphql(query, { search: name });
+    const contacts = data.trustedContacts?.data || [];
+    return contacts;
+  } catch (err) {
+    console.warn(`[Worksome] Worker search failed: ${err.message}`);
+    // Try alternative query shape if the first one fails
+    try {
+      const altQuery = `
+        query SearchWorkers($search: String!) {
+          workers(search: $search, first: 5) {
+            data {
+              id
+              name
+              email
+              title
+            }
+          }
+        }
+      `;
+      const altData = await graphql(altQuery, { search: name });
+      return altData.workers?.data || [];
+    } catch (altErr) {
+      console.warn(`[Worksome] Alt worker search also failed: ${altErr.message}`);
+      return [];
+    }
+  }
+}
+
 // ─── Step 1: Create a job in DRAFT status ───────────────────
 async function createJob(routeResult) {
   const query = `
@@ -170,4 +214,4 @@ async function healthCheck() {
   }
 }
 
-module.exports = { handoff, healthCheck, graphql };
+module.exports = { handoff, healthCheck, searchWorkers, graphql };

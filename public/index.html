@@ -187,14 +187,26 @@ Conduct a short intake interview to understand what the manager needs, then gath
 
 ### Path A: Fast Track (Known Worker)
 Q1b: "Great — what's their name?"
-Q1c: "And what's their email address? I'll need it to get them set up."
-Q1d: "Is this person replacing someone on your team, or are they coming in for a specific project?"
-- PROJECT → Route decided: worksome → go to Phase 2
-- REPLACE → Ask Q1e
 
-Q1e: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
+After the manager gives the name, the system will automatically search the talent pool. You will receive a system message with the search results. Based on the results:
+
+**If workers are found:** Present the matches to the manager like: "I found [name(s)] in the talent pool. Is this who you're looking for?" List each match with their name and title if available. Let the manager confirm which one.
+
+**If no workers found:** Say something like: "I couldn't find anyone by that name in the talent pool. Let me take you to the talent pool so you can search yourself." Then immediately output a special JSON to redirect them:
+\`\`\`json
+{"route":"worksome","confidence":"high","role_title":"Direct Hire","description":"Known worker — not found in talent pool","known_worker":true,"worker_name":"the name they gave","worker_found":false,"redirect":"talent_pool","headcount":1}
+\`\`\`
+
+**If worker confirmed:** Continue the direct hire flow:
+Q1c: "Is this person replacing someone on your team, or are they coming in for a specific project?"
+- PROJECT → Route decided: worksome → go to Phase 2
+- REPLACE → Ask Q1d
+
+Q1d: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
 - YES (SDC present) → Route decided: vms → go to Phase 2
 - NO (autonomous) → Route decided: worksome → go to Phase 2
+
+Include the confirmed worker's details in the final JSON output (worker_name, worker_email if available, worker_id if provided by the system).
 
 ### Path B: Discovery Flow
 Q2: "Tell me about the work you need done — what's the role or project?"
@@ -235,7 +247,7 @@ The VMS for this client is: ${cfg.vms.name}
 ## Output
 When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -478,6 +490,7 @@ function ChatPage({ config, setPage, page }) {
   const [started, setStarted] = useState(false);
   const [error, setError] = useState(null);
   const [quickReplies, setQuickReplies] = useState(null);
+  const [waitingForWorkerName, setWaitingForWorkerName] = useState(false);
   const chatRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -485,14 +498,47 @@ function ChatPage({ config, setPage, page }) {
 
   useEffect(() => { scrollBottom(); }, [messages, loading]);
 
+  // Check if the last assistant message was asking for the worker's name
+  const isAskingForName = (text) => {
+    const t = text.toLowerCase();
+    return t.includes("what's their name") || t.includes("what is their name") || t.includes("who is it") || t.includes("what's the person's name");
+  };
+
+  // Search Worksome talent pool
+  const searchTalentPool = async (name) => {
+    try {
+      const res = await fetch(`/api/search-worker?name=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      return data.workers || [];
+    } catch { return []; }
+  };
+
   const sendToAssistant = async (userText, allApiMsgs) => {
     // API key is managed server-side
     setLoading(true);
     setError(null);
     setQuickReplies(null);
+
+    let msgsToSend = allApiMsgs;
+
+    // If we were waiting for a worker name, search the talent pool first
+    if (waitingForWorkerName && userText) {
+      setWaitingForWorkerName(false);
+      const workers = await searchTalentPool(userText);
+
+      if (workers.length > 0) {
+        const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
+        const searchMsg = { role: 'user', content: `[SYSTEM: Talent pool search results for "${userText}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` };
+        msgsToSend = [...allApiMsgs.slice(0, -1), allApiMsgs[allApiMsgs.length - 1], searchMsg];
+      } else {
+        const searchMsg = { role: 'user', content: `[SYSTEM: Talent pool search for "${userText}" returned no results. Tell the manager you couldn't find them and redirect to the talent pool. Output the redirect JSON immediately.]` };
+        msgsToSend = [...allApiMsgs.slice(0, -1), allApiMsgs[allApiMsgs.length - 1], searchMsg];
+      }
+    }
+
     try {
       const systemPrompt = buildSystemPrompt(config);
-      const reply = await callClaude(config.api_key, systemPrompt, allApiMsgs);
+      const reply = await callClaude(config.api_key, systemPrompt, msgsToSend);
 
       const jsonMatch = reply.match(/```json\s*([\s\S]*?)```/);
       let cleanReply = reply;
@@ -523,6 +569,11 @@ function ChatPage({ config, setPage, page }) {
       if (!jsonMatch) {
         const qr = detectQuickReplies(cleanReply);
         if (qr) setQuickReplies(qr);
+
+        // Detect if Claude is asking for the worker's name
+        if (isAskingForName(cleanReply)) {
+          setWaitingForWorkerName(true);
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -557,7 +608,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 
@@ -653,6 +704,8 @@ function ChatPage({ config, setPage, page }) {
                   if (isWorksome && handoffResult && handoffResult.job_url) {
                     destUrl = handoffResult.job_url;
                   }
+                  // Worker not found — redirect to talent pool
+                  const isRedirect = isWorksome && routeResult.worker_found === false;
 
                   return (
                     <div className={`route-card ${isWorksome ? 'worksome' : 'vms'}`}>
@@ -661,7 +714,11 @@ function ChatPage({ config, setPage, page }) {
                       </div>
                       <div style={{fontSize: 15, fontWeight: 600, marginBottom: 4}}>{routeResult.role_title || 'Role'}</div>
                       <div style={{fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5}}>
-                        Confidence: {routeResult.confidence} · {routeResult.known_worker ? 'Known worker' : 'Talent search'}{routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : ''}
+                        {isRedirect ? (
+                          `Search the talent pool for ${routeResult.worker_name || 'your worker'}`
+                        ) : (
+                          <>Confidence: {routeResult.confidence} · {routeResult.known_worker ? 'Known worker' : 'Talent search'}{routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : ''}</>
+                        )}
                       </div>
 
                       {isWorksome && handoffLoading && (
@@ -685,7 +742,7 @@ function ChatPage({ config, setPage, page }) {
                       <a href={destUrl}
                         target="_blank" rel="noopener"
                         style={{display: 'inline-block', padding: '8px 18px', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 600, color: 'white', textDecoration: 'none', background: color}}>
-                        Continue in {dest} →
+                        {isRedirect ? 'Search talent pool →' : `Continue in ${dest} →`}
                       </a>
                     </div>
                   );

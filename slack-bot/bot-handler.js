@@ -31,14 +31,26 @@ Conduct a short intake interview to understand what the manager needs, then gath
 
 ### Path A: Fast Track (Known Worker)
 Q1b: "Great — what's their name?"
-Q1c: "And what's their email address? I'll need it to get them set up."
-Q1d: "Is this person replacing someone on your team, or are they coming in for a specific project?"
-- PROJECT → Route decided: worksome → go to Phase 2
-- REPLACE → Ask Q1e
 
-Q1e: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
+After the manager gives the name, the system will automatically search the talent pool. You will receive a system message with the search results. Based on the results:
+
+**If workers are found:** Present the matches to the manager like: "I found [name(s)] in the talent pool. Is this who you're looking for?" List each match with their name and title if available. Let the manager confirm which one.
+
+**If no workers found:** Say something like: "I couldn't find anyone by that name in the talent pool. Let me take you to the talent pool so you can search yourself." Then immediately output a special JSON to redirect them:
+\`\`\`json
+{"route":"worksome","confidence":"high","role_title":"Direct Hire","description":"Known worker — not found in talent pool","known_worker":true,"worker_name":"the name they gave","worker_found":false,"redirect":"talent_pool","headcount":1}
+\`\`\`
+
+**If worker confirmed:** Continue the direct hire flow:
+Q1c: "Is this person replacing someone on your team, or are they coming in for a specific project?"
+- PROJECT → Route decided: worksome → go to Phase 2
+- REPLACE → Ask Q1d
+
+Q1d: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
 - YES (SDC present) → Route decided: vms → go to Phase 2
 - NO (autonomous) → Route decided: worksome → go to Phase 2
+
+Include the confirmed worker's details in the final JSON output (worker_name, worker_email if available, worker_id if provided by the system).
 
 ### Path B: Discovery Flow
 Q2: "Tell me about the work you need done — what's the role or project?"
@@ -79,7 +91,7 @@ The VMS for this client is: ${c.vms.name}
 ## Output
 When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -93,6 +105,12 @@ When you have the routing decision AND the enrichment details, respond with your
 }
 
 const sessions = new Map();
+const waitingForName = new Set(); // Track users in the "what's their name?" state
+
+function isAskingForName(text) {
+  const t = text.toLowerCase();
+  return t.includes("what's their name") || t.includes("what is their name") || t.includes("who is it") || t.includes("what's the person's name");
+}
 
 function detectQuickReplies(text) {
   const t = text.toLowerCase();
@@ -209,11 +227,33 @@ module.exports.register = function (app, anthropic) {
     }
     const history = sessions.get(userId);
     history.push({ role: "user", content: message.text });
+
+    // If waiting for a worker name, search the talent pool
+    if (waitingForName.has(userId)) {
+      waitingForName.delete(userId);
+      try {
+        const workers = await worksome.searchWorkers(message.text.trim());
+        if (workers.length > 0) {
+          const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
+          history.push({ role: "user", content: `[SYSTEM: Talent pool search results for "${message.text}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` });
+        } else {
+          history.push({ role: "user", content: `[SYSTEM: Talent pool search for "${message.text}" returned no results. Tell the manager you couldn't find them and redirect to the talent pool. Output the redirect JSON immediately.]` });
+        }
+      } catch (err) {
+        console.warn("[Slack] Worker search failed:", err.message);
+      }
+    }
+
     try {
       const reply = await callClaude(userId);
       const routeResult = parseRoute(reply);
       const clean = cleanReply(reply);
       const quickReplies = routeResult ? null : detectQuickReplies(clean);
+
+      // Check if Claude is now asking for the worker's name
+      if (!routeResult && isAskingForName(clean)) {
+        waitingForName.add(userId);
+      }
       history.push({ role: "assistant", content: reply });
 
       // Attempt Worksome handoff if routed there
@@ -253,6 +293,11 @@ module.exports.register = function (app, anthropic) {
       const quickReplies = routeResult ? null : detectQuickReplies(clean);
       history.push({ role: "assistant", content: reply });
 
+      // Check if Claude is asking for the worker's name
+      if (!routeResult && isAskingForName(clean)) {
+        waitingForName.add(userId);
+      }
+
       // Attempt Worksome handoff if routed there
       if (routeResult && routeResult.route === "worksome") {
         try {
@@ -264,7 +309,7 @@ module.exports.register = function (app, anthropic) {
       }
 
       await client.chat.postMessage({ channel, text: clean, blocks: buildBlocks(clean, quickReplies, routeResult) });
-      if (routeResult) sessions.delete(userId);
+      if (routeResult) { sessions.delete(userId); waitingForName.delete(userId); }
     } catch (err) {
       console.error("Claude API error:", err.message);
       await client.chat.postMessage({ channel, text: "Something went wrong — please try again or type `/hire` to restart." });

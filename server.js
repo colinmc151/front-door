@@ -35,6 +35,26 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+// ─── Worksome worker search ──────────────────────────
+app.get("/api/search-worker", async (req, res) => {
+  try {
+    const name = req.query.name;
+    if (!name || name.trim().length < 2) {
+      return res.json({ workers: [], query: name });
+    }
+
+    if (!process.env.WORKSOME_API_TOKEN) {
+      return res.json({ workers: [], query: name, message: "Worksome API not configured" });
+    }
+
+    const workers = await worksome.searchWorkers(name.trim());
+    res.json({ workers, query: name });
+  } catch (err) {
+    console.error("[Worksome] Search error:", err.message);
+    res.json({ workers: [], query: req.query.name, error: err.message });
+  }
+});
+
 // ─── Worksome handoff — create a draft job ───────────
 app.post("/api/handoff/worksome", async (req, res) => {
   try {
