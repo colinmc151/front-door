@@ -95,23 +95,39 @@ app.get("/api/debug-search", async (req, res) => {
   const name = req.query.name || "Sterling";
   const results = {};
 
-  // Try 1: List ALL contacts (no search filter) to see if data exists
+  // Try 1: Get accounts
   try {
-    const d = await worksome.graphql(`{ trustedContacts(first: 10) { data { id worker { id name email jobTitle } status } } }`);
-    results.all_contacts = d.trustedContacts?.data || [];
-  } catch (e) { results.all_contacts_error = e.message; }
+    const d = await worksome.graphql(`{ accounts { id name } }`);
+    results.accounts = d.accounts || [];
+  } catch (e) { results.accounts_error = e.message; }
 
-  // Try 2: Search with the name
+  // Try 2: Get profile
   try {
-    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id worker { id name email jobTitle } } } }`);
-    results.search_results = d.trustedContacts?.data || [];
-  } catch (e) { results.search_error = e.message; }
+    const d = await worksome.graphql(`{ profile { name email } }`);
+    results.profile = d.profile;
+  } catch (e) { results.profile_error = e.message; }
 
-  // Try 3: Who am I? (confirm token works)
+  // Try 3: Trusted contacts with search (no account filter)
   try {
-    const d = await worksome.graphql(`{ me { id name email } }`);
-    results.me = d.me;
-  } catch (e) { results.me_error = e.message; }
+    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id worker { id name firstName lastName email } } } }`);
+    results.search_no_account = d.trustedContacts?.data || [];
+  } catch (e) { results.search_no_account_error = e.message; }
+
+  // Try 4: If we got accounts, try with account filter
+  if (results.accounts && results.accounts.length > 0) {
+    const acctId = results.accounts[0].id;
+    try {
+      const d = await worksome.graphql(`{ trustedContacts(search: "${name}", accounts: ["${acctId}"], first: 5) { data { id worker { id name firstName lastName email } } } }`);
+      results.search_with_account = d.trustedContacts?.data || [];
+      results.account_used = acctId;
+    } catch (e) { results.search_with_account_error = e.message; }
+
+    // Try 5: List all trusted contacts for this account (no search)
+    try {
+      const d = await worksome.graphql(`{ trustedContacts(accounts: ["${acctId}"], first: 10) { data { id worker { id name email } status } } }`);
+      results.account_contacts = d.trustedContacts?.data || [];
+    } catch (e) { results.account_contacts_error = e.message; }
+  }
 
   res.json({ query: name, results });
 });
