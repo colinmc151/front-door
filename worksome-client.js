@@ -236,15 +236,11 @@ const WORKSOME_BASE_URL = process.env.WORKSOME_URL ? process.env.WORKSOME_URL.re
 
 function buildWorksomeUrl(routeResult, jobId) {
   // Known worker with ID → go straight to direct hire page
-  if (routeResult.known_worker && routeResult.worker_id && routeResult.worker_found !== false) {
+  if (routeResult.known_worker && routeResult.worker_id) {
     return `${WORKSOME_BASE_URL}/profile/${routeResult.worker_id}/hire`;
   }
-  // Job was created → link to jobs page
-  if (jobId) {
-    return `${WORKSOME_BASE_URL}/jobs`;
-  }
-  // Fallback
-  return `${WORKSOME_BASE_URL}/login`;
+  // Discovery flow or new worker → hires page
+  return `${WORKSOME_BASE_URL}/profiles/contracts`;
 }
 
 // ─── Main handoff function ──────────────────────────────────
