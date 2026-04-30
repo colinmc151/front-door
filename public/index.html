@@ -193,10 +193,16 @@ After the manager gives the name, the system will automatically search the talen
 
 **If workers are found:** Present the matches to the manager like: "I found [name(s)] in the talent pool. Is this who you're looking for?" List each match with their name and title if available. Let the manager confirm which one.
 
-**If no workers found:** Say something like: "I couldn't find anyone by that name in the talent pool. Let me take you to the talent pool so you can search yourself." Then immediately output a special JSON to redirect them:
-\`\`\`json
-{"route":"worksome","confidence":"high","role_title":"Direct Hire","description":"Known worker — not found in talent pool","known_worker":true,"worker_name":"the name they gave","worker_found":false,"redirect":"talent_pool","headcount":1}
-\`\`\`
+**If no workers found:** Say something like: "I couldn't find anyone by that name in the system yet — no problem, I can get them set up. Let me grab a few details."
+
+Then ask these questions ONE AT A TIME:
+W1: "What's their first name?"
+W2: "And their last name?"
+W3: "What's the best email to reach them?" (required)
+W4: "What country are they based in?"
+W5: "What are their main skills or areas of expertise?"
+
+After collecting at least first name, last name, and email, continue to the normal routing flow (Q1c onward) to determine the route and gather enrichment details. Include all collected worker details in the final JSON output.
 
 **If worker confirmed:** Continue the direct hire flow:
 Q1c: "Is this person replacing someone on your team, or are they coming in for a specific project?"
@@ -248,7 +254,7 @@ The VMS for this client is: ${cfg.vms.name}
 ## Output
 When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_first_name":"...or_null","worker_last_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"worker_country":"...or_null","worker_skills":["skill1","skill2"],"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -539,7 +545,7 @@ function ChatPage({ config, setPage, page }) {
         msgsToSend = [
           ...allApiMsgs,
           { role: 'assistant', text: `Let me check the talent pool for "${userText}"...` },
-          { role: 'user', text: `[SYSTEM: Talent pool search for "${userText}" returned no results. Tell the manager you couldn't find them and redirect to the talent pool. Output the redirect JSON immediately.]` }
+          { role: 'user', text: `[SYSTEM: Talent pool search for "${userText}" returned no results. Tell the manager you couldn't find them but you can get them set up. Ask for their first name to start collecting details (first name, last name, email, country, skills) — one question at a time.]` }
         ];
       }
     }
@@ -712,8 +718,10 @@ function ChatPage({ config, setPage, page }) {
                   if (isWorksome && handoffResult && handoffResult.job_url) {
                     destUrl = handoffResult.job_url;
                   }
-                  // Worker not found — redirect to talent pool
-                  const isRedirect = isWorksome && routeResult.worker_found === false;
+                  // Worker not found but details collected — still go to Worksome
+                  const isNewWorker = isWorksome && routeResult.worker_found === false && routeResult.worker_email;
+                  // Worker not found and no details — fallback to talent pool
+                  const isRedirect = isWorksome && routeResult.worker_found === false && !routeResult.worker_email;
                   if (isRedirect) {
                     destUrl = config.worksome_talent_pool_url || config.worksome_url;
                   }
@@ -725,7 +733,9 @@ function ChatPage({ config, setPage, page }) {
                       </div>
                       <div style={{fontSize: 15, fontWeight: 600, marginBottom: 4}}>{routeResult.role_title || 'Role'}</div>
                       <div style={{fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5}}>
-                        {isRedirect ? (
+                        {isNewWorker ? (
+                          `Inviting ${routeResult.worker_first_name || routeResult.worker_name || 'worker'} ${routeResult.worker_last_name || ''} to the talent pool`
+                        ) : isRedirect ? (
                           `Search the talent pool for ${routeResult.worker_name || 'your worker'}`
                         ) : (
                           <>Confidence: {routeResult.confidence} · {routeResult.known_worker ? 'Known worker' : 'Talent search'}{routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : ''}</>
@@ -753,7 +763,7 @@ function ChatPage({ config, setPage, page }) {
                       <a href={destUrl}
                         target="_blank" rel="noopener"
                         style={{display: 'inline-block', padding: '8px 18px', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 600, color: 'white', textDecoration: 'none', background: color}}>
-                        {isRedirect ? 'Search talent pool →' : `Continue in ${dest} →`}
+                        {isRedirect ? 'Search talent pool →' : isNewWorker ? 'View in Worksome →' : `Continue in ${dest} →`}
                       </a>
                     </div>
                   );

@@ -150,15 +150,26 @@ async function inviteWorker(routeResult) {
     }
   `;
 
-  const variables = {
-    input: {
-      email: routeResult.worker_email,
-      name: routeResult.worker_name || null,
-    },
+  // Build the input with all available worker details
+  const input = {
+    email: routeResult.worker_email,
   };
 
+  // Use first/last name if available, fall back to full name
+  if (routeResult.worker_first_name) input.firstName = routeResult.worker_first_name;
+  if (routeResult.worker_last_name) input.lastName = routeResult.worker_last_name;
+  if (!input.firstName && routeResult.worker_name) input.name = routeResult.worker_name;
+
+  // Add country if provided
+  if (routeResult.worker_country) input.country = routeResult.worker_country;
+
+  // Add skills if provided
+  if (routeResult.worker_skills && routeResult.worker_skills.length > 0) {
+    input.skills = routeResult.worker_skills;
+  }
+
   try {
-    const data = await graphql(query, variables);
+    const data = await graphql(query, { input });
     console.log(`[Worksome] Worker invited: ${routeResult.worker_email} → ${data.createTrustedContact.id}`);
     return data.createTrustedContact;
   } catch (err) {
@@ -188,9 +199,10 @@ async function handoff(routeResult) {
     updatedJob = job;
   }
 
-  // Step 3: If known worker, invite them to the talent pool
+  // Step 3: If known worker with email, invite them to the talent pool
+  // This covers both "found in pool" and "not found, details collected" cases
   let worker = null;
-  if (routeResult.known_worker && routeResult.worker_email) {
+  if (routeResult.worker_email) {
     worker = await inviteWorker(routeResult);
   }
 

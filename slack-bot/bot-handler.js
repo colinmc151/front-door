@@ -37,10 +37,16 @@ After the manager gives the name, the system will automatically search the talen
 
 **If workers are found:** Present the matches to the manager like: "I found [name(s)] in the talent pool. Is this who you're looking for?" List each match with their name and title if available. Let the manager confirm which one.
 
-**If no workers found:** Say something like: "I couldn't find anyone by that name in the talent pool. Let me take you to the talent pool so you can search yourself." Then immediately output a special JSON to redirect them:
-\`\`\`json
-{"route":"worksome","confidence":"high","role_title":"Direct Hire","description":"Known worker — not found in talent pool","known_worker":true,"worker_name":"the name they gave","worker_found":false,"redirect":"talent_pool","headcount":1}
-\`\`\`
+**If no workers found:** Say something like: "I couldn't find anyone by that name in the system yet — no problem, I can get them set up. Let me grab a few details."
+
+Then ask these questions ONE AT A TIME:
+W1: "What's their first name?"
+W2: "And their last name?"
+W3: "What's the best email to reach them?" (required)
+W4: "What country are they based in?"
+W5: "What are their main skills or areas of expertise?"
+
+After collecting at least first name, last name, and email, continue to the normal routing flow (Q1c onward) to determine the route and gather enrichment details. Include all collected worker details in the final JSON output.
 
 **If worker confirmed:** Continue the direct hire flow:
 Q1c: "Is this person replacing someone on your team, or are they coming in for a specific project?"
@@ -92,7 +98,7 @@ The VMS for this client is: ${c.vms.name}
 ## Output
 When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"worker_name":"...or_null","worker_first_name":"...or_null","worker_last_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"worker_country":"...or_null","worker_skills":["skill1","skill2"],"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -154,8 +160,9 @@ function buildBlocks(text, quickReplies, routeResult) {
     let url = isWorksome ? config.worksome_url : config.vms_url;
     const headcount = routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : "";
 
-    // Worker not found — redirect to talent pool
-    if (isWorksome && routeResult.worker_found === false) {
+    // Worker not found and no details collected — redirect to talent pool
+    const isNewWorker = isWorksome && routeResult.worker_found === false && routeResult.worker_email;
+    if (isWorksome && routeResult.worker_found === false && !routeResult.worker_email) {
       url = config.worksome_talent_pool_url;
     }
     // If routed to Worksome and handoff data is available, use the job URL
@@ -174,12 +181,16 @@ function buildBlocks(text, quickReplies, routeResult) {
     if (isWorksome && routeResult._handoff && routeResult._handoff.job_id) {
       fields.push({ type: "mrkdwn", text: `*Worksome Job*\nDraft #${routeResult._handoff.job_id}` });
     }
+    if (isNewWorker && routeResult._handoff && routeResult._handoff.worker_invited) {
+      fields.push({ type: "mrkdwn", text: `*Worker*\n${routeResult.worker_first_name || ''} ${routeResult.worker_last_name || ''} invited` });
+    }
     blocks.push({ type: "section", fields });
+    const buttonLabel = isNewWorker ? "View in Worksome →" : `Continue in ${dest} →`;
     blocks.push({
       type: "actions",
       elements: [{
         type: "button",
-        text: { type: "plain_text", text: `Continue in ${dest} →`, emoji: true },
+        text: { type: "plain_text", text: buttonLabel, emoji: true },
         url, action_id: "open_destination", style: "primary",
       }],
     });
@@ -244,7 +255,7 @@ module.exports.register = function (app, anthropic) {
           const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
           history.push({ role: "user", content: `[SYSTEM: Talent pool search results for "${message.text}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` });
         } else {
-          history.push({ role: "user", content: `[SYSTEM: Talent pool search for "${message.text}" returned no results. Tell the manager you couldn't find them and redirect to the talent pool. Output the redirect JSON immediately.]` });
+          history.push({ role: "user", content: `[SYSTEM: Talent pool search for "${message.text}" returned no results. Tell the manager you couldn't find them but you can get them set up. Ask for their first name to start collecting details (first name, last name, email, country, skills) — one question at a time.]` });
         }
       } catch (err) {
         console.warn("[Slack] Worker search failed:", err.message);
