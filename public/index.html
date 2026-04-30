@@ -508,6 +508,7 @@ function ChatPage({ config, setPage, page }) {
   const [error, setError] = useState(null);
   const [quickReplies, setQuickReplies] = useState(null);
   const [waitingForWorkerName, setWaitingForWorkerName] = useState(false);
+  const [foundWorkers, setFoundWorkers] = useState([]);
   const chatRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -545,6 +546,7 @@ function ChatPage({ config, setPage, page }) {
 
       // Inject search results: add an assistant "ack" then a user "system" message to maintain alternating roles
       if (workers.length > 0) {
+        setFoundWorkers(workers); // Store for handoff
         const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
         msgsToSend = [
           ...allApiMsgs,
@@ -570,6 +572,20 @@ function ChatPage({ config, setPage, page }) {
         cleanReply = reply.replace(/```json[\s\S]*?```/, '').trim();
         try {
           const parsed = JSON.parse(jsonMatch[1]);
+
+          // Inject worker_id from search results if Claude didn't include it
+          if (parsed.known_worker && !parsed.worker_id && foundWorkers.length > 0) {
+            // Try to match by name
+            const match = foundWorkers.find(w =>
+              parsed.worker_name && w.name && w.name.toLowerCase().includes(parsed.worker_name.toLowerCase())
+            ) || foundWorkers[0];
+            if (match) {
+              parsed.worker_id = match.id;
+              parsed.worker_email = parsed.worker_email || match.email;
+              console.log('[Front Door] Injected worker_id from search:', match.id);
+            }
+          }
+
           setRouteResult(parsed);
 
           // Trigger Worksome handoff if routed there
@@ -632,7 +648,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setFoundWorkers([]); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 
