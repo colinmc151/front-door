@@ -224,6 +224,22 @@ W5: "What are their main skills or areas of expertise?"
 After collecting at least first name, last name, and email, continue to the direct hire routing flow (Q1d onward) to determine the route and gather enrichment details. Set worker_found to false in the final JSON. Include all collected worker details in the output.
 
 ### Path B: Discovery Flow
+Q1b_discovery: "Would you like me to search your talent pool for people with specific skills, or would you prefer to describe the role and I'll handle the rest?"
+- If SEARCH TALENT POOL → Path B1 (Skill Search)
+- If DESCRIBE ROLE → Path B2 (Full Discovery)
+
+### Path B1: Skill Search
+Q_skills: "What skills or expertise are you looking for?"
+
+After the manager provides skills, the system will automatically search the talent pool by those skills. You will receive a system message with the results. Based on the results:
+
+**If workers are found:** Present the matches like: "I found some people in your talent pool with those skills:" and list each match with their name, title, and email if available. Ask: "Would you like to hire one of these people, or shall I continue setting up the role?"
+- If they pick someone → treat like Path A1 confirmed worker, continue to Q1d
+- If they want to continue → proceed to Path B2 Q3 onward (skip Q2 since we know the skills)
+
+**If no workers found:** Say something like: "I didn't find anyone with those skills in your talent pool yet. Let me help you set up the role so we can find the right person." Then continue to Path B2.
+
+### Path B2: Full Discovery
 Q2: "Tell me about the work you need done — what's the role or project?"
 Q3: "Is this for a specific project with a defined deliverable, or do you need ongoing support for your team?" (weight: ${cfg.weights.deliverable_or_ongoing})
 Q4: "How long do you expect this to last?" (weight: ${cfg.weights.duration})
@@ -374,6 +390,8 @@ function detectQuickReplies(text) {
     return ['Replacing someone on my team', 'Coming in for a specific project'];
   if (t.includes('managing their day-to-day') || t.includes('managing this person') || t.includes('supervising their schedule') || t.includes('directing how'))
     return ['Yes, I\'ll manage them directly', 'No, they\'ll work independently'];
+  if ((t.includes('search your talent pool') || t.includes('search my talent pool') || t.includes('search the talent pool')) && (t.includes('describe the role') || t.includes('handle the rest')))
+    return ['Search my talent pool by skills', 'I\'ll describe the role'];
   if ((t.includes('specific project') || t.includes('defined deliverable')) && (t.includes('ongoing support') || t.includes('ongoing')))
     return ['Specific project with a deliverable', 'Ongoing support for my team'];
   if (t.includes('prefer to pay') && (t.includes('deliverable') || t.includes('hourly')))
@@ -507,6 +525,7 @@ function ChatPage({ config, setPage, page }) {
   const [error, setError] = useState(null);
   const [quickReplies, setQuickReplies] = useState(null);
   const [waitingForWorkerName, setWaitingForWorkerName] = useState(false);
+  const [waitingForSkillSearch, setWaitingForSkillSearch] = useState(false);
   const [foundWorkers, setFoundWorkers] = useState([]);
   const chatRef = useRef(null);
   const inputRef = useRef(null);
@@ -521,13 +540,28 @@ function ChatPage({ config, setPage, page }) {
     return t.includes("what's their name") || t.includes("what is their name") || t.includes("who is it") || t.includes("what's the person's name");
   };
 
-  // Search Worksome talent pool
+  // Check if Claude is asking for skills to search the talent pool
+  const isAskingForSkills = (text) => {
+    const t = text.toLowerCase();
+    return (t.includes("what skills") || t.includes("what expertise") || t.includes("skills or expertise")) && (t.includes("looking for") || t.includes("are you"));
+  };
+
+  // Search Worksome talent pool by name
   const searchTalentPool = async (name) => {
     try {
       const res = await fetch(`/api/search-worker?name=${encodeURIComponent(name)}`);
       const data = await res.json();
       return data.workers || [];
     } catch { return []; }
+  };
+
+  // Search Worksome talent pool by skills
+  const searchTalentPoolBySkills = async (skillsText) => {
+    try {
+      const res = await fetch(`/api/search-skills?skills=${encodeURIComponent(skillsText)}`);
+      const data = await res.json();
+      return data;
+    } catch { return { workers: [], resolvedSkills: [] }; }
   };
 
   const sendToAssistant = async (userText, allApiMsgs) => {
@@ -557,6 +591,31 @@ function ChatPage({ config, setPage, page }) {
           ...allApiMsgs,
           { role: 'assistant', text: `Let me check the talent pool for "${userText}"...` },
           { role: 'user', text: `[SYSTEM: Talent pool search for "${userText}" returned no results. Tell the manager you couldn't find them but you can get them set up. Ask for their first name to start collecting details (first name, last name, email, country, skills) — one question at a time.]` }
+        ];
+      }
+    }
+
+    // If we were waiting for skills to search, do the skill-based search
+    if (waitingForSkillSearch && userText) {
+      setWaitingForSkillSearch(false);
+      const result = await searchTalentPoolBySkills(userText);
+      const workers = result.workers || [];
+      const resolved = result.resolvedSkills || [];
+      const skillSummary = resolved.map(s => s.name).join(', ') || userText;
+
+      if (workers.length > 0) {
+        setFoundWorkers(workers);
+        const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
+        msgsToSend = [
+          ...allApiMsgs,
+          { role: 'assistant', text: `Let me search your talent pool for people with those skills...` },
+          { role: 'user', text: `[SYSTEM: Talent pool skill search for "${skillSummary}" found these matches:\n${workerList}\nPresent these matches to the manager. Ask if they'd like to hire one of these people, or if they'd prefer to continue setting up the role. If they pick someone, continue the flow as Path A1 (known worker confirmed). IMPORTANT: Include their ID in worker_id in the final JSON.]` }
+        ];
+      } else {
+        msgsToSend = [
+          ...allApiMsgs,
+          { role: 'assistant', text: `Let me search your talent pool for people with those skills...` },
+          { role: 'user', text: `[SYSTEM: Talent pool skill search for "${skillSummary}" found no matches. Tell the manager you didn't find anyone with those skills in their talent pool yet, and offer to help set up the role so they can find the right person. Continue to the full discovery flow (Path B2).]` }
         ];
       }
     }
@@ -613,6 +672,10 @@ function ChatPage({ config, setPage, page }) {
         if (isAskingForName(cleanReply)) {
           setWaitingForWorkerName(true);
         }
+        // Detect if Claude is asking for skills to search talent pool
+        if (isAskingForSkills(cleanReply)) {
+          setWaitingForSkillSearch(true);
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -647,7 +710,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setFoundWorkers([]); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setWaitingForSkillSearch(false); setFoundWorkers([]); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 

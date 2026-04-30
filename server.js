@@ -55,6 +55,28 @@ app.get("/api/search-worker", async (req, res) => {
   }
 });
 
+// ─── Worksome skill-based talent pool search ─────────
+app.get("/api/search-skills", async (req, res) => {
+  try {
+    const skills = req.query.skills;
+    if (!skills) {
+      return res.json({ workers: [], resolvedSkills: [], query: skills });
+    }
+
+    if (!process.env.WORKSOME_API_TOKEN) {
+      return res.json({ workers: [], resolvedSkills: [], query: skills, message: "Worksome API not configured" });
+    }
+
+    // Accept comma-separated skill names
+    const skillNames = skills.split(",").map(s => s.trim()).filter(Boolean);
+    const result = await worksome.searchWorkersBySkills(skillNames);
+    res.json({ ...result, query: skills });
+  } catch (err) {
+    console.error("[Worksome] Skill search error:", err.message);
+    res.json({ workers: [], resolvedSkills: [], query: req.query.skills, error: err.message });
+  }
+});
+
 // ─── Worksome handoff — create a draft job ───────────
 app.post("/api/handoff/worksome", async (req, res) => {
   try {

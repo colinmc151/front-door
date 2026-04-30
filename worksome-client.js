@@ -111,6 +111,85 @@ async function searchWorkers(name) {
   }
 }
 
+// ─── Resolve skill names to IDs ────────────────────────────
+async function resolveSkillIds(skillNames) {
+  const ids = [];
+  for (const name of skillNames) {
+    try {
+      const data = await graphql(
+        `query FindSkill($search: String!) { skills(search: $search, first: 3) { data { id name } } }`,
+        { search: name }
+      );
+      const matches = data.skills?.data || [];
+      // Pick exact match first, otherwise first result
+      const exact = matches.find(s => s.name.toLowerCase() === name.toLowerCase());
+      const best = exact || matches[0];
+      if (best) {
+        ids.push({ id: best.id, name: best.name, searched: name });
+        console.log(`[Worksome] Skill "${name}" → ${best.name} (${best.id})`);
+      } else {
+        console.log(`[Worksome] Skill "${name}" → no match`);
+      }
+    } catch (err) {
+      console.warn(`[Worksome] Skill lookup failed for "${name}": ${err.message}`);
+    }
+  }
+  return ids;
+}
+
+// ─── Search talent pool by skills ──────────────────────────
+async function searchWorkersBySkills(skillNames) {
+  const accountId = await getAccountId();
+
+  // Step 1: Resolve skill names to IDs
+  const resolved = await resolveSkillIds(skillNames);
+  const skillIds = resolved.map(s => s.id);
+
+  if (skillIds.length === 0) {
+    console.log(`[Worksome] No skill IDs resolved — cannot search by skills`);
+    return { workers: [], resolvedSkills: resolved };
+  }
+
+  // Step 2: Query trusted contacts filtered by skills
+  const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
+  const query = `
+    query SearchBySkills($skills: [ID!]) {
+      trustedContacts(skills: $skills${accountFilter}, first: 10) {
+        data {
+          id
+          worker {
+            id
+            name
+            firstName
+            lastName
+            email
+            jobTitle
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    console.log(`[Worksome] Searching talent pool by skills: ${skillIds.join(', ')} (account: ${accountId || 'all'})`);
+    const data = await graphql(query, { skills: skillIds });
+    const raw = data.trustedContacts?.data || [];
+
+    const contacts = raw.map(tc => ({
+      id: tc.worker?.id || tc.id,
+      name: tc.worker?.name || null,
+      email: tc.worker?.email || null,
+      title: tc.worker?.jobTitle || null,
+    }));
+
+    console.log(`[Worksome] Skill search returned ${contacts.length} result(s):`, contacts.map(c => c.name));
+    return { workers: contacts, resolvedSkills: resolved };
+  } catch (err) {
+    console.warn(`[Worksome] Skill search failed: ${err.message}`);
+    return { workers: [], resolvedSkills: resolved, error: err.message };
+  }
+}
+
 // ─── Step 1: Create a job ───────────────────────────────────
 async function createJob(routeResult) {
   const accountId = await getAccountId();
@@ -327,4 +406,4 @@ async function healthCheck() {
   }
 }
 
-module.exports = { handoff, healthCheck, searchWorkers, graphql };
+module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills, graphql };
