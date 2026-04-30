@@ -95,6 +95,31 @@
   .config-section-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border-light); }
   .config-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; margin-bottom: 12px; }
   .config-label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+
+  /* ═══ MOBILE ═══ */
+  @media (max-width: 768px) {
+    .left-panel { display: none !important; }
+    .chat-right { padding: 0 !important; }
+    .chat-card { max-width: 100% !important; width: 100% !important; height: 100vh !important; max-height: 100vh !important; border-radius: 0 !important; box-shadow: none !important; border: none !important; }
+    .chat-msg { max-width: 90%; }
+    .chat-bubble { font-size: 15px; }
+    .chat-option { font-size: 14px; padding: 10px 16px; }
+    .stats-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+    .charts-grid { grid-template-columns: 1fr !important; }
+    .analytics-wrap { padding: 16px !important; }
+    .config-wrap { padding: 16px !important; }
+    .config-row { grid-template-columns: 1fr !important; gap: 4px !important; }
+    .nav-bar { padding: 0 12px !important; }
+    .nav-tabs .nav-label { display: none; }
+    .table-wrap { overflow-x: auto; }
+    .mobile-menu { display: flex !important; }
+    .chat-input-bar { padding: 10px 12px !important; }
+    .chat-messages { padding: 14px 12px !important; }
+    .chat-start { padding: 30px 24px !important; }
+  }
+  @media (max-width: 480px) {
+    .stats-grid-4 { grid-template-columns: 1fr !important; }
+  }
 </style>
 </head>
 <body>
@@ -271,20 +296,20 @@ function Nav({ page, setPage, config }) {
     { id: 'config', label: 'Settings', icon: '⚙️' }
   ];
   return (
-    <div style={{background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 52}}>
+    <div className="nav-bar" style={{background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 52}}>
       <div style={{display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer'}} onClick={() => setPage('chat')}>
         <div style={{width: 30, height: 30, background: config.branding.primary_color, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: 'white', fontWeight: 700}}>
           {config.branding.logo_text}
         </div>
         <span style={{fontSize: 15, fontWeight: 600}}>{config.assistant_name}</span>
       </div>
-      <div style={{display: 'flex', gap: 2}}>
+      <div className="nav-tabs" style={{display: 'flex', gap: 2}}>
         {tabs.map(t => (
           <button key={t.id} onClick={() => setPage(t.id)}
             style={{fontFamily: 'var(--font)', fontSize: 13, fontWeight: 500, padding: '6px 14px', border: 'none', borderRadius: 'var(--radius)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
               background: page === t.id ? 'var(--accent-bg)' : 'transparent',
               color: page === t.id ? 'var(--accent)' : 'var(--text-2)' }}>
-            <span style={{fontSize: 14}}>{t.icon}</span> {t.label}
+            <span style={{fontSize: 14}}>{t.icon}</span> <span className="nav-label">{t.label}</span>
           </button>
         ))}
       </div>
@@ -325,7 +350,7 @@ function LeftPanel({ config, setPage, onLogoClick }) {
   const subheadline = config.branding.subheadline || 'Your single front door for hiring. Describe what you need and we\'ll route you to the right place.';
 
   return (
-    <div style={{width: '42%', minWidth: 360, background: '#18181b', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '36px 44px', position: 'relative', overflow: 'hidden'}}>
+    <div className="left-panel" style={{width: '42%', minWidth: 360, background: '#18181b', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '36px 44px', position: 'relative', overflow: 'hidden'}}>
       {/* Subtle gradient overlay */}
       <div style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'radial-gradient(ellipse at 20% 0%, rgba(107,63,160,0.15) 0%, transparent 60%)', pointerEvents: 'none'}} />
 
@@ -504,11 +529,11 @@ function ChatPage({ config, setPage, page }) {
       <LeftPanel config={config} setPage={setPage} onLogoClick={resetChat} />
 
       {/* Right side — chat window floating on background */}
-      <div style={{flex: 1, background: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32}}>
-        <div style={{width: '100%', maxWidth: 480, height: '88vh', maxHeight: 660, background: 'white', borderRadius: 20, boxShadow: '0 12px 48px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.06)'}}>
+      <div className="chat-right" style={{flex: 1, background: '#f4f4f5', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32}}>
+        <div className="chat-card" style={{width: '100%', maxWidth: 480, height: '88vh', maxHeight: 660, background: 'white', borderRadius: 20, boxShadow: '0 12px 48px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid rgba(0,0,0,0.06)'}}>
 
           {!started ? (
-            <div style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 36px'}}>
+            <div className="chat-start" style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 36px'}}>
               <div style={{textAlign: 'center'}}>
                 <div style={{width: 48, height: 48, background: '#1a1d23', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: 'white', fontWeight: 700, margin: '0 auto 16px'}}>
                   {config.branding.logo_text}
@@ -527,18 +552,22 @@ function ChatPage({ config, setPage, page }) {
               {/* Chat header */}
               <div style={{padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0}}>
                 <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
-                  <div style={{width: 26, height: 26, background: '#1a1d23', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white', fontWeight: 700}}>
+                  <div style={{width: 26, height: 26, background: '#1a1d23', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white', fontWeight: 700, cursor: 'pointer'}} onClick={resetChat}>
                     {config.branding.logo_text}
                   </div>
                   <span style={{fontSize: 13, fontWeight: 600}}>
                     {routeResult ? `Routed → ${routeResult.route === 'worksome' ? 'Worksome' : config.vms.name}` : 'Intake in progress'}
                   </span>
                 </div>
-                <button className="btn btn-sm btn-ghost" onClick={resetChat} style={{fontSize: 12}}>New request</button>
+                <div style={{display: 'flex', gap: 4, alignItems: 'center'}}>
+                  <button className="btn btn-sm btn-ghost" onClick={resetChat} style={{fontSize: 12}}>New</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setPage('analytics')} style={{fontSize: 12}}>📊</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setPage('config')} style={{fontSize: 12}}>⚙️</button>
+                </div>
               </div>
 
               {/* Messages */}
-              <div ref={chatRef} style={{flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12}}>
+              <div ref={chatRef} className="chat-messages" style={{flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12}}>
                 {messages.map((m, i) => (
                   <div key={i} className={`chat-msg ${m.role}`}>
                     <div className="chat-avatar" style={{background: m.role === 'assistant' ? '#1a1d23' : '#4a90d9', width: 28, height: 28, fontSize: 11}}>
@@ -597,7 +626,7 @@ function ChatPage({ config, setPage, page }) {
 
               {/* Input bar */}
               {!routeResult && (
-                <div style={{padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexShrink: 0}}>
+                <div className="chat-input-bar" style={{padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexShrink: 0}}>
                   <input ref={inputRef} className="input" placeholder="Or type your answer..." value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSend()}
@@ -622,7 +651,7 @@ function ConfigPage({ config, updateConfig }) {
   const updateWeights = (k, v) => updateConfig({ weights: {...config.weights, [k]: parseInt(v) || 0} });
 
   return (
-    <div style={{height: '100%', overflowY: 'auto', padding: '24px 32px', maxWidth: 720}}>
+    <div className="config-wrap" style={{height: '100%', overflowY: 'auto', padding: '24px 32px', maxWidth: 720}}>
       <h2 style={{fontSize: 18, fontWeight: 700, marginBottom: 20}}>Settings</h2>
 
       {/* API status */}
@@ -893,11 +922,11 @@ function AnalyticsPage({ config }) {
   const avgSec = Math.round(mockRequests.reduce((a, r) => a + parseInt(r.duration), 0) / mockRequests.length);
 
   return (
-    <div style={{height: '100%', overflowY: 'auto', padding: '24px 32px'}}>
+    <div className="analytics-wrap" style={{height: '100%', overflowY: 'auto', padding: '24px 32px'}}>
       <h2 style={{fontSize: 18, fontWeight: 700, marginBottom: 20}}>Analytics</h2>
 
       {/* Stats row */}
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24}}>
+      <div className="stats-grid-4" style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24}}>
         <div className="stat-card">
           <div className="stat-value">{mockRequests.length}</div>
           <div className="stat-label">Total requests</div>
@@ -921,7 +950,7 @@ function AnalyticsPage({ config }) {
       </div>
 
       {/* Charts */}
-      <div style={{display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 24}}>
+      <div className="charts-grid" style={{display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 24}}>
         <div className="stat-card">
           <div style={{fontSize: 13, fontWeight: 600, marginBottom: 16}}>Weekly volume by route</div>
           <SvgBarChart data={weeklyVolume} barKeys={['worksome','vms']} colors={['#6b3fa0','#b45309']} labels={['Worksome', config.vms.name]} />
@@ -940,6 +969,7 @@ function AnalyticsPage({ config }) {
       {/* Recent requests table */}
       <div className="stat-card">
         <div style={{fontSize: 13, fontWeight: 600, marginBottom: 16}}>Recent requests</div>
+        <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -968,6 +998,7 @@ function AnalyticsPage({ config }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
