@@ -39,9 +39,12 @@ async function searchWorkers(name) {
       trustedContacts(search: $search, first: 5) {
         data {
           id
-          name
-          email
-          title
+          worker {
+            id
+            name
+            email
+            jobTitle
+          }
         }
       }
     }
@@ -50,15 +53,30 @@ async function searchWorkers(name) {
   try {
     console.log(`[Worksome] Searching talent pool for: "${name}"`);
     const data = await graphql(query, { search: name });
-    const contacts = data.trustedContacts?.data || [];
+    const raw = data.trustedContacts?.data || [];
+
+    // Flatten: pull worker details up to top level for the rest of the app
+    const contacts = raw.map(tc => ({
+      id: tc.worker?.id || tc.id,
+      name: tc.worker?.name || null,
+      email: tc.worker?.email || null,
+      title: tc.worker?.jobTitle || null,
+    }));
+
     console.log(`[Worksome] Search "${name}" returned ${contacts.length} result(s):`, contacts.map(c => c.name));
 
-    // If full name returned nothing, try last name only (some APIs match on single terms better)
+    // If full name returned nothing, try last name only
     if (contacts.length === 0 && name.includes(' ')) {
       const lastName = name.split(' ').pop();
       console.log(`[Worksome] Retrying with last name only: "${lastName}"`);
       const retryData = await graphql(query, { search: lastName });
-      const retryContacts = retryData.trustedContacts?.data || [];
+      const retryRaw = retryData.trustedContacts?.data || [];
+      const retryContacts = retryRaw.map(tc => ({
+        id: tc.worker?.id || tc.id,
+        name: tc.worker?.name || null,
+        email: tc.worker?.email || null,
+        title: tc.worker?.jobTitle || null,
+      }));
       console.log(`[Worksome] Retry "${lastName}" returned ${retryContacts.length} result(s):`, retryContacts.map(c => c.name));
       return retryContacts;
     }
@@ -66,29 +84,7 @@ async function searchWorkers(name) {
     return contacts;
   } catch (err) {
     console.warn(`[Worksome] Worker search failed: ${err.message}`);
-    // Try alternative query shape if the first one fails
-    try {
-      const altQuery = `
-        query SearchWorkers($search: String!) {
-          workers(search: $search, first: 5) {
-            data {
-              id
-              name
-              email
-              title
-            }
-          }
-        }
-      `;
-      console.log(`[Worksome] Trying alt query for: "${name}"`);
-      const altData = await graphql(altQuery, { search: name });
-      const altContacts = altData.workers?.data || [];
-      console.log(`[Worksome] Alt search returned ${altContacts.length} result(s)`);
-      return altContacts;
-    } catch (altErr) {
-      console.warn(`[Worksome] Alt worker search also failed: ${altErr.message}`);
-      return [];
-    }
+    return [];
   }
 }
 
