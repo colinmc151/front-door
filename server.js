@@ -95,23 +95,23 @@ app.get("/api/debug-search", async (req, res) => {
   const name = req.query.name || "Sterling";
   const results = {};
 
-  // Try 1: Introspect TrustedContact type fields
+  // Try 1: List ALL contacts (no search filter) to see if data exists
   try {
-    const d = await worksome.graphql(`{ __type(name: "TrustedContact") { fields { name type { name kind ofType { name kind } } } } }`);
-    results.trustedContact_fields = d.__type?.fields?.map(f => ({ name: f.name, type: f.type?.name || f.type?.ofType?.name || f.type?.kind })) || [];
-  } catch (e) { results.introspection_error = e.message; }
+    const d = await worksome.graphql(`{ trustedContacts(first: 10) { data { id worker { id name email jobTitle } status } } }`);
+    results.all_contacts = d.trustedContacts?.data || [];
+  } catch (e) { results.all_contacts_error = e.message; }
 
-  // Try 2: trustedContacts with just id (minimal query to confirm search works)
+  // Try 2: Search with the name
   try {
-    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id } } }`);
-    results.search_ids = d.trustedContacts?.data || [];
-  } catch (e) { results.search_ids_error = e.message; }
+    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id worker { id name email jobTitle } } } }`);
+    results.search_results = d.trustedContacts?.data || [];
+  } catch (e) { results.search_error = e.message; }
 
-  // Try 3: trustedContacts with likely field names
+  // Try 3: Who am I? (confirm token works)
   try {
-    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id firstName lastName worker { id name email title } } } }`);
-    results.search_with_worker = d.trustedContacts?.data || [];
-  } catch (e) { results.search_with_worker_error = e.message; }
+    const d = await worksome.graphql(`{ me { id name email } }`);
+    results.me = d.me;
+  } catch (e) { results.me_error = e.message; }
 
   res.json({ query: name, results });
 });
