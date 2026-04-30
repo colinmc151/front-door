@@ -90,6 +90,39 @@ app.post("/api/handoff/worksome", async (req, res) => {
   }
 });
 
+// ─── Debug: test different GraphQL query shapes ──────
+app.get("/api/debug-search", async (req, res) => {
+  const name = req.query.name || "Sterling";
+  const results = {};
+
+  // Try 1: trustedContacts with search
+  try {
+    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id name email title } } }`);
+    results.trustedContacts_search = d.trustedContacts?.data || [];
+  } catch (e) { results.trustedContacts_search_error = e.message; }
+
+  // Try 2: trustedContacts without search (list all)
+  try {
+    const d = await worksome.graphql(`{ trustedContacts(first: 10) { data { id name email title } } }`);
+    results.trustedContacts_all = d.trustedContacts?.data || [];
+  } catch (e) { results.trustedContacts_all_error = e.message; }
+
+  // Try 3: workers with search
+  try {
+    const d = await worksome.graphql(`{ workers(search: "${name}", first: 5) { data { id name email title } } }`);
+    results.workers_search = d.workers?.data || [];
+  } catch (e) { results.workers_search_error = e.message; }
+
+  // Try 4: introspect trustedContacts field args
+  try {
+    const d = await worksome.graphql(`{ __type(name: "Query") { fields { name args { name type { name kind ofType { name } } } } } }`);
+    const tcField = d.__type?.fields?.find(f => f.name === "trustedContacts");
+    results.trustedContacts_args = tcField?.args || "field not found";
+  } catch (e) { results.introspection_error = e.message; }
+
+  res.json({ query: name, results });
+});
+
 // ─── Health check ─────────────────────────────────────
 app.get("/api/health", async (req, res) => {
   const wsHealth = process.env.WORKSOME_API_TOKEN
