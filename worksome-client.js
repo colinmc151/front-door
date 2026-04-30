@@ -2,7 +2,7 @@
 // Creates draft jobs from Front Door intake data
 const fetch = require("node-fetch");
 
-const WORKSOME_API_URL = process.env.WORKSOME_API_URL || "https://api.sandbox.worksome.com/graphql";
+const WORKSOME_API_URL = process.env.WORKSOME_API_URL || "https://api.worksome.com/graphql";
 const WORKSOME_API_TOKEN = process.env.WORKSOME_API_TOKEN;
 
 async function graphql(query, variables = {}) {
