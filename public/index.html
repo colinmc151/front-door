@@ -549,7 +549,7 @@ function ChatPage({ config, setPage, page }) {
         msgsToSend = [
           ...allApiMsgs,
           { role: 'assistant', text: `Let me check the talent pool for "${userText}"...` },
-          { role: 'user', text: `[SYSTEM: Talent pool search results for "${userText}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` }
+          { role: 'user', text: `[SYSTEM: Talent pool search results for "${userText}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker. IMPORTANT: When outputting the final JSON, you MUST include the worker's ID exactly as shown above in the worker_id field.]` }
         ];
       } else {
         msgsToSend = [
