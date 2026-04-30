@@ -2,7 +2,7 @@
 // Creates draft jobs from Front Door intake data
 const fetch = require("node-fetch");
 
-const WORKSOME_API_URL = process.env.WORKSOME_API_URL || "https://api.worksome.com/graphql";
+const WORKSOME_API_URL = process.env.WORKSOME_API_URL || "https://general-api.sand.aws.worksome.com/graphql";
 const WORKSOME_API_TOKEN = process.env.WORKSOME_API_TOKEN;
 
 async function graphql(query, variables = {}) {
@@ -42,8 +42,9 @@ async function searchWorkers(name) {
           worker {
             id
             name
+            firstName
+            lastName
             email
-            jobTitle
           }
         }
       }
@@ -88,25 +89,28 @@ async function searchWorkers(name) {
   }
 }
 
-// ─── Step 1: Create a job in DRAFT status ───────────────────
+// ─── Step 1: Create a job ───────────────────────────────────
 async function createJob(routeResult) {
   const query = `
     mutation CreateJob($input: CreateJobInput!) {
       createJob(input: $input) {
         id
-        title
-        status
+        name
+        skills { name }
       }
     }
   `;
 
-  const variables = {
-    input: {
-      title: routeResult.role_title || "New Role",
-    },
+  const input = {
+    name: routeResult.role_title || "New Role",
   };
 
-  const data = await graphql(query, variables);
+  // Add skills if available
+  if (routeResult.skills && routeResult.skills.length > 0) {
+    input.skills = routeResult.skills;
+  }
+
+  const data = await graphql(query, { input });
   return data.createJob;
 }
 
@@ -116,37 +120,41 @@ async function updateJob(jobId, routeResult) {
     mutation UpdateJob($input: UpdateJobInput!) {
       updateJob(input: $input) {
         id
-        title
-        status
-        url
+        name
+        description
+        startDate
+        endDate
       }
     }
   `;
 
-  // Map payment model to budget type
-  const budgetType =
-    routeResult.payment_model === "milestone" || routeResult.payment_model === "fixed"
-      ? "FIXED"
-      : routeResult.payment_model === "daily"
-      ? "DAILY"
-      : "HOURLY";
-
   // Build a rich description from enrichment data
   const descParts = [];
   if (routeResult.description) descParts.push(routeResult.description);
-  if (routeResult.skills && routeResult.skills.length > 0) {
-    descParts.push(`\nKey skills: ${routeResult.skills.join(", ")}`);
-  }
   if (routeResult.duration) descParts.push(`Duration: ${routeResult.duration}`);
   if (routeResult.location) descParts.push(`Location: ${routeResult.location}`);
-  if (routeResult.start_date) descParts.push(`Start: ${routeResult.start_date}`);
   if (routeResult.budget) descParts.push(`Budget: ${routeResult.budget}`);
   if (routeResult.headcount > 1) descParts.push(`Headcount: ${routeResult.headcount}`);
 
   const input = {
     id: jobId,
+    name: routeResult.role_title || "New Role",
     description: descParts.join("\n") || `Role: ${routeResult.role_title}`,
   };
+
+  // Map payment model to rate type
+  if (routeResult.payment_model && routeResult.payment_model !== "unknown") {
+    const rateTypeMap = { hourly: "HOURLY", daily: "DAILY", milestone: "FIXED", fixed: "FIXED" };
+    const rateType = rateTypeMap[routeResult.payment_model];
+    if (rateType) {
+      input.rateType = { type: rateType };
+    }
+  }
+
+  // Add start date if available
+  if (routeResult.start_date && routeResult.start_date !== "asap" && routeResult.start_date !== "null") {
+    input.startDate = routeResult.start_date;
+  }
 
   const data = await graphql(query, { input });
   return data.updateJob;
