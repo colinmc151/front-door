@@ -170,9 +170,13 @@ function buildBlocks(text, quickReplies, routeResult) {
     let url = isWorksome ? config.worksome_url : config.vms_url;
     const headcount = routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : "";
 
-    // Worker not found and no details collected — redirect to talent pool
+    // Worker not found but details collected — go to talent pool to see invited contact
     const isNewWorker = isWorksome && routeResult.worker_found === false && routeResult.worker_email;
-    if (isWorksome && routeResult.worker_found === false && !routeResult.worker_email) {
+    if (isNewWorker) {
+      url = config.worksome_talent_pool_url;
+    }
+    // Worker not found and no details — also redirect to talent pool
+    else if (isWorksome && routeResult.worker_found === false && !routeResult.worker_email) {
       url = config.worksome_talent_pool_url;
     }
     // If routed to Worksome and handoff data is available, use the job URL

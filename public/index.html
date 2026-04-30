@@ -728,8 +728,11 @@ function ChatPage({ config, setPage, page }) {
                   if (isWorksome && handoffResult && handoffResult.job_url) {
                     destUrl = handoffResult.job_url;
                   }
-                  // Worker not found but details collected — still go to Worksome
+                  // Worker not found but details collected — go to talent pool to see invited contact
                   const isNewWorker = isWorksome && routeResult.worker_found === false && routeResult.worker_email;
+                  if (isNewWorker) {
+                    destUrl = config.worksome_talent_pool_url || config.worksome_url;
+                  }
                   // Worker not found and no details — fallback to talent pool
                   const isRedirect = isWorksome && routeResult.worker_found === false && !routeResult.worker_email;
                   if (isRedirect) {
