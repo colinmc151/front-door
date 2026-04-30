@@ -95,30 +95,23 @@ app.get("/api/debug-search", async (req, res) => {
   const name = req.query.name || "Sterling";
   const results = {};
 
-  // Try 1: trustedContacts with search
+  // Try 1: Introspect TrustedContact type fields
   try {
-    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id name email title } } }`);
-    results.trustedContacts_search = d.trustedContacts?.data || [];
-  } catch (e) { results.trustedContacts_search_error = e.message; }
-
-  // Try 2: trustedContacts without search (list all)
-  try {
-    const d = await worksome.graphql(`{ trustedContacts(first: 10) { data { id name email title } } }`);
-    results.trustedContacts_all = d.trustedContacts?.data || [];
-  } catch (e) { results.trustedContacts_all_error = e.message; }
-
-  // Try 3: workers with search
-  try {
-    const d = await worksome.graphql(`{ workers(search: "${name}", first: 5) { data { id name email title } } }`);
-    results.workers_search = d.workers?.data || [];
-  } catch (e) { results.workers_search_error = e.message; }
-
-  // Try 4: introspect trustedContacts field args
-  try {
-    const d = await worksome.graphql(`{ __type(name: "Query") { fields { name args { name type { name kind ofType { name } } } } } }`);
-    const tcField = d.__type?.fields?.find(f => f.name === "trustedContacts");
-    results.trustedContacts_args = tcField?.args || "field not found";
+    const d = await worksome.graphql(`{ __type(name: "TrustedContact") { fields { name type { name kind ofType { name kind } } } } }`);
+    results.trustedContact_fields = d.__type?.fields?.map(f => ({ name: f.name, type: f.type?.name || f.type?.ofType?.name || f.type?.kind })) || [];
   } catch (e) { results.introspection_error = e.message; }
+
+  // Try 2: trustedContacts with just id (minimal query to confirm search works)
+  try {
+    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id } } }`);
+    results.search_ids = d.trustedContacts?.data || [];
+  } catch (e) { results.search_ids_error = e.message; }
+
+  // Try 3: trustedContacts with likely field names
+  try {
+    const d = await worksome.graphql(`{ trustedContacts(search: "${name}", first: 5) { data { id firstName lastName worker { id name email title } } } }`);
+    results.search_with_worker = d.trustedContacts?.data || [];
+  } catch (e) { results.search_with_worker_error = e.message; }
 
   res.json({ query: name, results });
 });
