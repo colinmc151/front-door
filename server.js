@@ -90,16 +90,36 @@ app.post("/api/handoff/worksome", async (req, res) => {
   }
 });
 
-// ─── Debug: introspect enums ──────────────────────────
-app.get("/api/debug-enums", async (req, res) => {
+// ─── Debug: introspect schema ─────────────────────────
+app.get("/api/debug-schema", async (req, res) => {
   const results = {};
-  const enumNames = ["TrustedContactOrigin", "TrustedContactOriginChannel"];
-  for (const name of enumNames) {
-    try {
-      const d = await worksome.graphql(`{ __type(name: "${name}") { enumValues { name description } } }`);
-      results[name] = d.__type?.enumValues || [];
-    } catch (e) { results[name + "_error"] = e.message; }
-  }
+
+  // Check trustedContacts query args
+  try {
+    const d = await worksome.graphql(`{
+      __type(name: "Query") {
+        fields(includeDeprecated: false) {
+          name
+          args { name type { name kind ofType { name kind } } }
+        }
+      }
+    }`);
+    const tc = d.__type?.fields?.find(f => f.name === "trustedContacts");
+    results.trustedContacts_args = tc?.args || [];
+  } catch (e) { results.trustedContacts_error = e.message; }
+
+  // Check if there's a skills-based search
+  try {
+    const d = await worksome.graphql(`{
+      __type(name: "Query") {
+        fields(includeDeprecated: false) {
+          name
+        }
+      }
+    }`);
+    results.all_queries = d.__type?.fields?.map(f => f.name) || [];
+  } catch (e) { results.queries_error = e.message; }
+
   res.json(results);
 });
 
