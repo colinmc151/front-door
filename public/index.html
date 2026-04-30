@@ -526,13 +526,20 @@ function ChatPage({ config, setPage, page }) {
       setWaitingForWorkerName(false);
       const workers = await searchTalentPool(userText);
 
+      // Inject search results: add an assistant "ack" then a user "system" message to maintain alternating roles
       if (workers.length > 0) {
         const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
-        const searchMsg = { role: 'user', content: `[SYSTEM: Talent pool search results for "${userText}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` };
-        msgsToSend = [...allApiMsgs.slice(0, -1), allApiMsgs[allApiMsgs.length - 1], searchMsg];
+        msgsToSend = [
+          ...allApiMsgs,
+          { role: 'assistant', text: `Let me check the talent pool for "${userText}"...` },
+          { role: 'user', text: `[SYSTEM: Talent pool search results for "${userText}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` }
+        ];
       } else {
-        const searchMsg = { role: 'user', content: `[SYSTEM: Talent pool search for "${userText}" returned no results. Tell the manager you couldn't find them and redirect to the talent pool. Output the redirect JSON immediately.]` };
-        msgsToSend = [...allApiMsgs.slice(0, -1), allApiMsgs[allApiMsgs.length - 1], searchMsg];
+        msgsToSend = [
+          ...allApiMsgs,
+          { role: 'assistant', text: `Let me check the talent pool for "${userText}"...` },
+          { role: 'user', text: `[SYSTEM: Talent pool search for "${userText}" returned no results. Tell the manager you couldn't find them and redirect to the talent pool. Output the redirect JSON immediately.]` }
+        ];
       }
     }
 

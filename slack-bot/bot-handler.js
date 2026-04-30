@@ -233,6 +233,8 @@ module.exports.register = function (app, anthropic) {
       waitingForName.delete(userId);
       try {
         const workers = await worksome.searchWorkers(message.text.trim());
+        // Add assistant ack + system result to maintain alternating roles
+        history.push({ role: "assistant", content: `Let me check the talent pool for "${message.text}"...` });
         if (workers.length > 0) {
           const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
           history.push({ role: "user", content: `[SYSTEM: Talent pool search results for "${message.text}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker.]` });
