@@ -1,5 +1,6 @@
 // Slack bot handler — imported by server.js
 // The Slack App and Anthropic client are passed in from the server
+const worksome = require("../worksome-client");
 
 const config = {
   assistant_name: process.env.ASSISTANT_NAME || "Worksome Hiring Hub",
@@ -20,9 +21,9 @@ function buildSystemPrompt() {
 You are warm, professional, and efficient. You never use procurement jargon (no "SOW," "staff augmentation," "IC," or "VMS"). You speak the manager's language.
 
 ## Your Job
-Conduct a short intake interview (2–7 questions) to understand what the manager needs, then produce a structured routing decision. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain the routing logic.
+Conduct a short intake interview to understand what the manager needs, then gather enough detail to set up the role for them. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain the routing logic.
 
-## Conversation Flow
+## Phase 1: Routing (determine where this request goes)
 
 ### Q1: Ask "Do you already know who you'd like to work with?"
 - If YES → Path A (Fast Track)
@@ -30,12 +31,12 @@ Conduct a short intake interview (2–7 questions) to understand what the manage
 
 ### Path A: Fast Track
 Q1b: "Great — is this person replacing someone on your team, or are they coming in for a specific project?"
-- PROJECT → Route: worksome
+- PROJECT → Route decided: worksome → go to Phase 2
 - REPLACE → Ask Q1c
 
 Q1c: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
-- YES (SDC present) → Route: vms
-- NO (autonomous) → Route: worksome
+- YES (SDC present) → Route decided: vms → go to Phase 2
+- NO (autonomous) → Route decided: worksome → go to Phase 2
 
 ### Path B: Discovery Flow
 Q2: "Tell me about the work you need done — what's the role or project?"
@@ -43,25 +44,40 @@ Q3: "Is this for a specific project with a defined deliverable, or do you need o
 Q4: "How long do you expect this to last?" (weight: ${c.weights.duration})
 Q5: "How many people do you need?" (weight: ${c.weights.headcount})
 
-After Q5, if clear → route. If ambiguous → ask tiebreakers:
+After Q5, if clear → route decided → go to Phase 2. If ambiguous → ask tiebreakers:
 Q6: "Would you prefer to pay for specific deliverables or on an hourly/daily rate?" (weight: ${c.weights.payment_model})
 Q7: "Will you be managing this person's day-to-day work?" (weight: ${c.weights.sdc})
 
 ## Knockout Signals (instant route, check every answer)
 Route to VMS if: ${c.knockouts.vms.join(", ")} or 10+ identical roles
 Route to Worksome if: ${c.knockouts.worksome.join(", ")}
+After a knockout, still proceed to Phase 2 enrichment.
 
 ## Scoring
 Deliverable/ongoing: wt ${c.weights.deliverable_or_ongoing} | Duration: wt ${c.weights.duration} | Headcount: wt ${c.weights.headcount} | Payment: wt ${c.weights.payment_model} | SDC: wt ${c.weights.sdc}
 Route clear if one side ≥ 5. Ambiguous if diff ≤ 1 → ask tiebreakers.
 
+## Phase 2: Enrichment (gather details to set up the role)
+
+Once you know the route, transition with something like: "Great — I know exactly where to send this. Just a few more details so I can get everything set up for you."
+
+Then ask these questions ONE AT A TIME. Skip any that were already clearly answered during Phase 1:
+
+E1: "Can you give me a quick summary of what this person will be doing?" (if not already covered by Q2)
+E2: "What skills or experience are most important for this role?"
+E3: "Will this be remote, on-site, or hybrid?"
+E4: "When do you need them to start?"
+E5: "Do you have a budget or rate range in mind?" (if they say no or seem unsure, that's fine — just move on)
+
+You do NOT need to ask all of these — skip any that were already answered. The goal is to collect enough to create a useful job listing. Once you have at least a description and skills, you can proceed to output.
+
 ## VMS Provider
 The VMS for this client is: ${c.vms.name}
 
 ## Output
-When routing is determined, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
+When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"...","known_worker":true_or_false,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"..."}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -70,7 +86,8 @@ When routing is determined, respond with your confirmation message, then on a NE
 3. Never mention Worksome, ${c.vms.name}, SDC, scoring, or routing to the manager.
 4. Never use procurement jargon.
 5. Be conversational — like a helpful colleague, not a form.
-6. When confirming the route, say: "Perfect — I've got everything I need. I'm setting this up for you now."`;
+6. When confirming the route, say: "Perfect — I've got everything I need. I'm setting this up for you now."
+7. Do NOT output the JSON until Phase 2 is complete. The system needs the enrichment data to create the job.`;
 }
 
 const sessions = new Map();
@@ -87,6 +104,11 @@ function detectQuickReplies(text) {
     return ["Specific project with a deliverable", "Ongoing support for my team"];
   if (t.includes("prefer to pay") && (t.includes("deliverable") || t.includes("hourly")))
     return ["Pay for deliverables / milestones", "Hourly or daily rate"];
+  // Enrichment quick replies
+  if (t.includes("remote") && t.includes("on-site") || t.includes("remote") && t.includes("hybrid"))
+    return ["Remote", "On-site", "Hybrid"];
+  if (t.includes("budget") && t.includes("rate") && t.includes("mind"))
+    return ["I have a budget in mind", "No specific budget yet"];
   return null;
 }
 
@@ -108,20 +130,26 @@ function buildBlocks(text, quickReplies, routeResult) {
   if (routeResult) {
     const isWorksome = routeResult.route === "worksome";
     const dest = isWorksome ? "Worksome" : config.vms.name;
-    const url = isWorksome ? config.worksome_url : config.vms_url;
+    let url = isWorksome ? config.worksome_url : config.vms_url;
     const headcount = routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : "";
+
+    // If routed to Worksome and handoff data is available, use the job URL
+    if (isWorksome && routeResult._handoff && routeResult._handoff.job_url) {
+      url = routeResult._handoff.job_url;
+    }
 
     blocks.push({ type: "divider" });
     blocks.push({ type: "section", text: { type: "mrkdwn", text: `:white_check_mark:  *Routed → ${dest}*` } });
-    blocks.push({
-      type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*Role*\n${routeResult.role_title || "Role"}` },
-        { type: "mrkdwn", text: `*Confidence*\n${routeResult.confidence}` },
-        { type: "mrkdwn", text: `*Type*\n${routeResult.known_worker ? "Known worker" : "Talent search"}${headcount}` },
-        { type: "mrkdwn", text: `*Duration*\n${routeResult.duration || "—"}` },
-      ],
-    });
+    const fields = [
+      { type: "mrkdwn", text: `*Role*\n${routeResult.role_title || "Role"}` },
+      { type: "mrkdwn", text: `*Confidence*\n${routeResult.confidence}` },
+      { type: "mrkdwn", text: `*Type*\n${routeResult.known_worker ? "Known worker" : "Talent search"}${headcount}` },
+      { type: "mrkdwn", text: `*Duration*\n${routeResult.duration || "—"}` },
+    ];
+    if (isWorksome && routeResult._handoff && routeResult._handoff.job_id) {
+      fields.push({ type: "mrkdwn", text: `*Worksome Job*\nDraft #${routeResult._handoff.job_id}` });
+    }
+    blocks.push({ type: "section", fields });
     blocks.push({
       type: "actions",
       elements: [{
@@ -151,7 +179,7 @@ module.exports.register = function (app, anthropic) {
     const messages = sessions.get(userId) || [];
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 500,
+      max_tokens: 800,
       system: buildSystemPrompt(),
       messages,
     });
@@ -185,6 +213,17 @@ module.exports.register = function (app, anthropic) {
       const clean = cleanReply(reply);
       const quickReplies = routeResult ? null : detectQuickReplies(clean);
       history.push({ role: "assistant", content: reply });
+
+      // Attempt Worksome handoff if routed there
+      if (routeResult && routeResult.route === "worksome") {
+        try {
+          const handoff = await worksome.handoff(routeResult);
+          routeResult._handoff = handoff;
+        } catch (err) {
+          console.warn("[Slack] Worksome handoff failed (non-fatal):", err.message);
+        }
+      }
+
       await client.chat.postMessage({ channel: message.channel, text: clean, blocks: buildBlocks(clean, quickReplies, routeResult) });
       if (routeResult) sessions.delete(userId);
     } catch (err) {
@@ -211,6 +250,17 @@ module.exports.register = function (app, anthropic) {
       const clean = cleanReply(reply);
       const quickReplies = routeResult ? null : detectQuickReplies(clean);
       history.push({ role: "assistant", content: reply });
+
+      // Attempt Worksome handoff if routed there
+      if (routeResult && routeResult.route === "worksome") {
+        try {
+          const handoff = await worksome.handoff(routeResult);
+          routeResult._handoff = handoff;
+        } catch (err) {
+          console.warn("[Slack] Worksome handoff failed (non-fatal):", err.message);
+        }
+      }
+
       await client.chat.postMessage({ channel, text: clean, blocks: buildBlocks(clean, quickReplies, routeResult) });
       if (routeResult) sessions.delete(userId);
     } catch (err) {

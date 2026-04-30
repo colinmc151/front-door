@@ -177,9 +177,9 @@ function buildSystemPrompt(cfg) {
 You are warm, professional, and efficient. You never use procurement jargon (no "SOW," "staff augmentation," "IC," or "VMS"). You speak the manager's language.
 
 ## Your Job
-Conduct a short intake interview (2–7 questions) to understand what the manager needs, then produce a structured routing decision. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain the routing logic.
+Conduct a short intake interview to understand what the manager needs, then gather enough detail to set up the role for them. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain the routing logic.
 
-## Conversation Flow
+## Phase 1: Routing (determine where this request goes)
 
 ### Q1: Ask "Do you already know who you'd like to work with?"
 - If YES → Path A (Fast Track)
@@ -187,12 +187,12 @@ Conduct a short intake interview (2–7 questions) to understand what the manage
 
 ### Path A: Fast Track
 Q1b: "Great — is this person replacing someone on your team, or are they coming in for a specific project?"
-- PROJECT → Route: worksome
+- PROJECT → Route decided: worksome → go to Phase 2
 - REPLACE → Ask Q1c
 
 Q1c: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
-- YES (SDC present) → Route: vms
-- NO (autonomous) → Route: worksome
+- YES (SDC present) → Route decided: vms → go to Phase 2
+- NO (autonomous) → Route decided: worksome → go to Phase 2
 
 ### Path B: Discovery Flow
 Q2: "Tell me about the work you need done — what's the role or project?"
@@ -200,25 +200,40 @@ Q3: "Is this for a specific project with a defined deliverable, or do you need o
 Q4: "How long do you expect this to last?" (weight: ${cfg.weights.duration})
 Q5: "How many people do you need?" (weight: ${cfg.weights.headcount})
 
-After Q5, if clear → route. If ambiguous → ask tiebreakers:
+After Q5, if clear → route decided → go to Phase 2. If ambiguous → ask tiebreakers:
 Q6: "Would you prefer to pay for specific deliverables or on an hourly/daily rate?" (weight: ${cfg.weights.payment_model})
 Q7: "Will you be managing this person's day-to-day work?" (weight: ${cfg.weights.sdc})
 
 ## Knockout Signals (instant route, check every answer)
 Route to VMS if: ${cfg.knockouts.vms.join(', ')} or 10+ identical roles
 Route to Worksome if: ${cfg.knockouts.worksome.join(', ')}
+After a knockout, still proceed to Phase 2 enrichment.
 
 ## Scoring
 Deliverable/ongoing: wt ${cfg.weights.deliverable_or_ongoing} | Duration: wt ${cfg.weights.duration} | Headcount: wt ${cfg.weights.headcount} | Payment: wt ${cfg.weights.payment_model} | SDC: wt ${cfg.weights.sdc}
 Route clear if one side ≥ 5. Ambiguous if diff ≤ 1 → ask tiebreakers.
 
+## Phase 2: Enrichment (gather details to set up the role)
+
+Once you know the route, transition with something like: "Great — I know exactly where to send this. Just a few more details so I can get everything set up for you."
+
+Then ask these questions ONE AT A TIME. Skip any that were already clearly answered during Phase 1:
+
+E1: "Can you give me a quick summary of what this person will be doing?" (if not already covered by Q2)
+E2: "What skills or experience are most important for this role?"
+E3: "Will this be remote, on-site, or hybrid?"
+E4: "When do you need them to start?"
+E5: "Do you have a budget or rate range in mind?" (if they say no or seem unsure, that's fine — just move on)
+
+You do NOT need to ask all of these — skip any that were already answered. The goal is to collect enough to create a useful job listing. Once you have at least a description and skills, you can proceed to output.
+
 ## VMS Provider
 The VMS for this client is: ${cfg.vms.name}
 
 ## Output
-When routing is determined, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
+When you have the routing decision AND the enrichment details, respond with your confirmation message, then on a NEW LINE output EXACTLY this JSON block (the system will parse it):
 \`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"...","known_worker":true_or_false,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"..."}
+{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"A clear 2-3 sentence job description based on what the manager told you","skills":["skill1","skill2","skill3"],"known_worker":true_or_false,"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","start_date":"...or_asap_or_null","budget":"...or_null"}
 \`\`\`
 
 ## Rules
@@ -227,7 +242,8 @@ When routing is determined, respond with your confirmation message, then on a NE
 3. Never mention Worksome, ${cfg.vms.name}, SDC, scoring, or routing to the manager.
 4. Never use procurement jargon.
 5. Be conversational — like a helpful colleague, not a form.
-6. When confirming the route, say: "Perfect — I've got everything I need. I'm setting this up for you now."`;
+6. When confirming the route, say: "Perfect — I've got everything I need. I'm setting this up for you now."
+7. Do NOT output the JSON until Phase 2 is complete. The system needs the enrichment data to create the job.`;
 }
 
 // ══════════════════════════════════════
@@ -332,6 +348,11 @@ function detectQuickReplies(text) {
     return ['Specific project with a deliverable', 'Ongoing support for my team'];
   if (t.includes('prefer to pay') && (t.includes('deliverable') || t.includes('hourly')))
     return ['Pay for deliverables / milestones', 'Hourly or daily rate'];
+  // Enrichment quick replies
+  if (t.includes('remote') && t.includes('on-site') || t.includes('remote') && t.includes('hybrid'))
+    return ['Remote', 'On-site', 'Hybrid'];
+  if (t.includes('budget') && t.includes('rate') && t.includes('mind'))
+    return ['I have a budget in mind', 'No specific budget yet'];
   return null;
 }
 
@@ -450,6 +471,8 @@ function ChatPage({ config, setPage, page }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [routeResult, setRouteResult] = useState(null);
+  const [handoffResult, setHandoffResult] = useState(null);
+  const [handoffLoading, setHandoffLoading] = useState(false);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState(null);
   const [quickReplies, setQuickReplies] = useState(null);
@@ -476,6 +499,19 @@ function ChatPage({ config, setPage, page }) {
         try {
           const parsed = JSON.parse(jsonMatch[1]);
           setRouteResult(parsed);
+
+          // Trigger Worksome handoff if routed there
+          if (parsed.route === 'worksome') {
+            setHandoffLoading(true);
+            fetch('/api/handoff/worksome', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(parsed)
+            })
+              .then(r => r.json())
+              .then(h => { setHandoffResult(h); setHandoffLoading(false); })
+              .catch(() => setHandoffLoading(false));
+          }
         } catch {}
       }
 
@@ -519,7 +555,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setError(null); setQuickReplies(null); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 
@@ -605,23 +641,50 @@ function ChatPage({ config, setPage, page }) {
                   </div>
                 )}
 
-                {routeResult && (
-                  <div className={`route-card ${routeResult.route === 'worksome' ? 'worksome' : 'vms'}`}>
-                    <div style={{fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: routeResult.route === 'worksome' ? 'var(--accent)' : 'var(--warn)', marginBottom: 4}}>
-                      Routed → {routeResult.route === 'worksome' ? 'Worksome' : config.vms.name}
+                {routeResult && (() => {
+                  const isWorksome = routeResult.route === 'worksome';
+                  const dest = isWorksome ? 'Worksome' : config.vms.name;
+                  const color = isWorksome ? 'var(--accent)' : 'var(--warn)';
+
+                  // Determine the best URL to link to
+                  let destUrl = isWorksome ? config.worksome_url : config.vms.url;
+                  if (isWorksome && handoffResult && handoffResult.job_url) {
+                    destUrl = handoffResult.job_url;
+                  }
+
+                  return (
+                    <div className={`route-card ${isWorksome ? 'worksome' : 'vms'}`}>
+                      <div style={{fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color, marginBottom: 4}}>
+                        Routed → {dest}
+                      </div>
+                      <div style={{fontSize: 15, fontWeight: 600, marginBottom: 4}}>{routeResult.role_title || 'Role'}</div>
+                      <div style={{fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5}}>
+                        Confidence: {routeResult.confidence} · {routeResult.known_worker ? 'Known worker' : 'Talent search'}{routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : ''}
+                      </div>
+
+                      {isWorksome && handoffLoading && (
+                        <div style={{fontSize: 12, color: 'var(--text-3)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6}}>
+                          <span className="typing-dot"></span>
+                          <span className="typing-dot"></span>
+                          <span className="typing-dot"></span>
+                          <span style={{marginLeft: 4}}>Creating draft job in Worksome...</span>
+                        </div>
+                      )}
+
+                      {isWorksome && handoffResult && handoffResult.job_id && (
+                        <div style={{fontSize: 12, color: 'var(--accent)', marginBottom: 8}}>
+                          Draft job created in Worksome (ID: {handoffResult.job_id})
+                        </div>
+                      )}
+
+                      <a href={destUrl}
+                        target="_blank" rel="noopener"
+                        style={{display: 'inline-block', padding: '8px 18px', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 600, color: 'white', textDecoration: 'none', background: color}}>
+                        Continue in {dest} →
+                      </a>
                     </div>
-                    <div style={{fontSize: 15, fontWeight: 600, marginBottom: 4}}>{routeResult.role_title || 'Role'}</div>
-                    <div style={{fontSize: 13, color: 'var(--text-2)', marginBottom: 10, lineHeight: 1.5}}>
-                      Confidence: {routeResult.confidence} · {routeResult.known_worker ? 'Known worker' : 'Talent search'}{routeResult.headcount > 1 ? ` · ${routeResult.headcount} people` : ''}
-                    </div>
-                    <a href={routeResult.route === 'worksome' ? config.worksome_url : config.vms.url}
-                      target="_blank" rel="noopener"
-                      style={{display: 'inline-block', padding: '8px 18px', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 600, color: 'white', textDecoration: 'none',
-                        background: routeResult.route === 'worksome' ? 'var(--accent)' : 'var(--warn)'}}>
-                      Continue in {routeResult.route === 'worksome' ? 'Worksome' : config.vms.name} →
-                    </a>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Input bar */}
