@@ -217,8 +217,8 @@ async function inviteWorker(routeResult) {
     email: routeResult.worker_email,
     links: [],
     attachments: [],
-    origin: "COMPANY",
-    originChannel: "WEB",
+    origin: "INVITED",
+    originChannel: "DIRECT_INVITE",
   };
 
   // Account/company is likely required
