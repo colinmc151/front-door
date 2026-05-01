@@ -768,10 +768,6 @@ function ChatPage({ config, setPage, page }) {
           if (isAskingForName(cleanReply)) {
             setWaitingForWorkerName(true);
           }
-          // Detect if Claude is asking for skills to search talent pool
-          if (isAskingForSkills(cleanReply)) {
-            setWaitingForSkillSearch(true);
-          }
         }
       }
     } catch (err) {
