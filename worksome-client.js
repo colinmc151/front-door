@@ -28,7 +28,8 @@ async function graphql(query, variables = {}) {
     throw new Error("WORKSOME_API_TOKEN not configured");
   }
 
-  console.log(`[Worksome] GraphQL request to ${WORKSOME_API_URL}`);
+  // Verbose logging disabled for production
+  // console.log(`[Worksome] GraphQL request to ${WORKSOME_API_URL}`);
 
   const res = await fetch(WORKSOME_API_URL, {
     method: "POST",
@@ -271,62 +272,6 @@ async function updateJob(jobId, routeResult) {
   return data.updateJob;
 }
 
-// ─── Step 3: Invite a new worker (createTrustedContact) ─────
-async function inviteWorker(routeResult) {
-  if (!routeResult.worker_email) return null;
-
-  const accountId = await getAccountId();
-
-  const query = `
-    mutation CreateTrustedContact($input: CreateTrustedContactInput!) {
-      createTrustedContact(input: $input) {
-        id
-        status
-        worker {
-          id
-          name
-          email
-        }
-      }
-    }
-  `;
-
-  // Build the input with all available worker details
-  const input = {
-    email: routeResult.worker_email,
-    links: [],
-    attachments: [],
-    origin: "INVITED",
-    originChannel: "DIRECT_INVITE",
-  };
-
-  // Account/company is likely required
-  if (accountId) input.company = accountId;
-
-  // Use first/last name
-  if (routeResult.worker_first_name) input.firstName = routeResult.worker_first_name;
-  if (routeResult.worker_last_name) input.lastName = routeResult.worker_last_name;
-
-  // Add country if provided
-  if (routeResult.worker_country) input.country = routeResult.worker_country;
-
-  // Add skills if provided
-  if (routeResult.worker_skills && routeResult.worker_skills.length > 0) {
-    input.skills = routeResult.worker_skills;
-  }
-
-  try {
-    console.log(`[Worksome] Inviting worker: ${routeResult.worker_first_name || ''} ${routeResult.worker_last_name || ''} (${routeResult.worker_email})`);
-    const data = await graphql(query, { input });
-    const tc = data.createTrustedContact;
-    console.log(`[Worksome] Worker invited: ${routeResult.worker_email} → TC: ${tc.id}, Worker: ${tc.worker?.id || 'n/a'}`);
-    return tc;
-  } catch (err) {
-    console.warn(`[Worksome] Worker invite failed: ${err.message}`);
-    return null;
-  }
-}
-
 // ─── Build the Worksome URL based on context ───────────────
 const WORKSOME_BASE_URL = process.env.WORKSOME_URL ? process.env.WORKSOME_URL.replace('/login', '') : 'https://sandbox.worksome.com';
 
@@ -406,4 +351,4 @@ async function healthCheck() {
   }
 }
 
-module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills, graphql };
+module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills };
