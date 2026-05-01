@@ -200,16 +200,7 @@ After the manager gives the name, the system will automatically search the talen
 
 **If no workers found:** Say something like: "I couldn't find anyone by that name — let me get them set up instead." Then switch to the Path A2 (New Worker) flow below.
 
-**If worker confirmed:** Continue the direct hire flow:
-Q1d: "Is this person replacing someone on your team, or are they coming in for a specific project?"
-- PROJECT → Route decided: worksome → go to Phase 2
-- REPLACE → Ask Q1e
-
-Q1e: "Will you be managing their day-to-day work — setting tasks, supervising their schedule, directing how the work gets done?"
-- YES (SDC present) → Route decided: vms → go to Phase 2
-- NO (autonomous) → Route decided: worksome → go to Phase 2
-
-Include the confirmed worker's details in the final JSON output (worker_name, worker_email if available, worker_id if provided by the system).
+**If worker confirmed:** The manager knows who they want and they're already in the talent pool — go straight to output. Route is always "worksome". Say something like: "Perfect — I'm setting up the direct hire for [name] now." Then immediately output the JSON with known_worker: true, worker_found: true, route: "worksome", and the worker's details. Skip all routing questions and enrichment — the hire page in Worksome will collect everything else.
 
 ### Path A2: New Worker (invite to talent pool)
 Say something like: "No problem — I can get them set up. Let me grab a few details."
