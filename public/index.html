@@ -462,19 +462,29 @@ function LeftPanel({ config, setPage, onLogoClick }) {
 
   const GridCard = ({ item, idx, icon }) => {
     const isOpen = expandedCard === idx;
+    const cardRef = useRef(null);
     return (
-      <div
-        style={{background: isOpen ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.05)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', transition: 'background 0.2s', gridColumn: isOpen ? '1 / -1' : 'auto'}}
-        onClick={() => setExpandedCard(isOpen ? null : idx)}
-      >
-        <div style={{padding: '10px 11px', display: 'flex', alignItems: 'flex-start', gap: 8}}>
-          <span style={{fontSize: 12, flexShrink: 0, marginTop: 1}}>{icon}</span>
-          <span style={{fontSize: 11.5, fontWeight: 500, color: 'rgba(255,255,255,0.85)', lineHeight: 1.35}}>{item.title}</span>
+      <div ref={cardRef} style={{position: 'relative'}}>
+        <div
+          style={{background: isOpen ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', cursor: 'pointer', transition: 'background 0.2s'}}
+          onClick={(e) => { e.stopPropagation(); setExpandedCard(isOpen ? null : idx); }}
+        >
+          <div style={{padding: '10px 11px', display: 'flex', alignItems: 'flex-start', gap: 8}}>
+            <span style={{fontSize: 12, flexShrink: 0, marginTop: 1}}>{icon}</span>
+            <span style={{fontSize: 11.5, fontWeight: 500, color: 'rgba(255,255,255,0.85)', lineHeight: 1.35}}>{item.title}</span>
+          </div>
         </div>
         {isOpen && (
-          <div style={{padding: '0 11px 11px 11px', borderTop: '1px solid rgba(255,255,255,0.06)'}}>
-            <p style={{fontSize: 11.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, margin: '8px 0 0 0'}}>{item.body}</p>
-          </div>
+          <>
+            <div style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99}} onClick={() => setExpandedCard(null)} />
+            <div style={{position: 'absolute', left: 0, right: -10, top: '100%', marginTop: 6, zIndex: 100, background: '#2a2a2f', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '14px 16px', boxShadow: '0 8px 30px rgba(0,0,0,0.5)', minWidth: 260, maxWidth: 320}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8}}>
+                <span style={{fontSize: 12}}>{icon}</span>
+                <span style={{fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)'}}>{item.title}</span>
+              </div>
+              <p style={{fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.65, margin: 0}}>{item.body}</p>
+            </div>
+          </>
         )}
       </div>
     );
