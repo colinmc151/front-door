@@ -226,9 +226,9 @@ For both A1 and A2: after Q1d, you're done. Say "Perfect — I'm setting this up
 
 ## Path B: I need to find someone
 
-Q1b_discovery: "Would you like me to help you create a project brief and find the right talent, or would you prefer to just describe the role?"
-- CREATE PROJECT → **B1**
-- DESCRIBE ROLE → **B2**
+Q1b_discovery: "Would you like me to use AI to create a project brief? I can also search your talent pool for the best match."
+- YES → **B1**
+- NO / JUST DESCRIBE → **B2**
 
 ### B1: AI Project Brief + Talent Match
 Q_project: "Tell me what you need this person to do — what's the project or deliverable?"
@@ -414,8 +414,8 @@ function detectQuickReplies(text) {
     return ['Replacing someone on my team', 'Coming in for a specific project'];
   if (t.includes('managing their day-to-day') || t.includes('managing this person') || t.includes('supervising their schedule') || t.includes('directing how'))
     return ['Yes, I\'ll manage them directly', 'No, they\'ll work independently'];
-  if ((t.includes('project brief') || t.includes('find the right talent') || t.includes('create a project')) && (t.includes('describe the role') || t.includes('just describe')))
-    return ['Create a project brief and find talent', 'I\'ll just describe the role'];
+  if (t.includes('project brief') && (t.includes('ai') || t.includes('talent pool') || t.includes('best match')))
+    return ['Yes, create a project brief', 'No, I\'ll just describe the role'];
   if ((t.includes('specific project') || t.includes('defined deliverable')) && (t.includes('ongoing support') || t.includes('ongoing')))
     return ['Specific project with a deliverable', 'Ongoing support for my team'];
   if (t.includes('prefer to pay') && (t.includes('deliverable') || t.includes('hourly')))
