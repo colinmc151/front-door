@@ -151,7 +151,7 @@ async function searchWorkersBySkills(skillNames) {
     return { workers: [], resolvedSkills: resolved };
   }
 
-  // Step 2: Query trusted contacts filtered by skills
+  // Step 2: Query trusted contacts filtered by skills (include their skills for scoring)
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
   const query = `
     query SearchBySkills($skills: [ID!]) {
@@ -165,6 +165,7 @@ async function searchWorkersBySkills(skillNames) {
             lastName
             email
             jobTitle
+            skills { name }
           }
         }
       }
@@ -181,6 +182,7 @@ async function searchWorkersBySkills(skillNames) {
       name: tc.worker?.name || null,
       email: tc.worker?.email || null,
       title: tc.worker?.jobTitle || null,
+      skills: (tc.worker?.skills || []).map(s => s.name),
     }));
 
     console.log(`[Worksome] Skill search returned ${contacts.length} result(s):`, contacts.map(c => c.name));

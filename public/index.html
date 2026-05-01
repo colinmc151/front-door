@@ -226,18 +226,36 @@ For both A1 and A2: after Q1d, you're done. Say "Perfect — I'm setting this up
 
 ## Path B: I need to find someone
 
-Q1b_discovery: "Would you like me to search your talent pool for people with specific skills, or would you prefer to describe the role and I'll handle the rest?"
-- SEARCH → **B1**
-- DESCRIBE → **B2**
+Q1b_discovery: "Would you like me to help you create a project brief and find the right talent, or would you prefer to just describe the role?"
+- CREATE PROJECT → **B1**
+- DESCRIBE ROLE → **B2**
 
-### B1: Skill search
-Q_skills: "What skills or expertise are you looking for?"
-The system searches the talent pool by skills automatically. You'll get a system message with results.
+### B1: AI Project Brief + Talent Match
+Q_project: "Tell me what you need this person to do — what's the project or deliverable?"
 
-- **Found:** Show matches (name, title, email). Ask: "Would you like to hire one of these people, or shall I continue setting up the role?"
-  - Pick someone → Ask Q1d. Then output JSON. Done — no enrichment needed (same as A1).
-  - Continue → Go to B2, but skip Q2 (role description) and skip asking about skills again since we already have them. Start from Q3.
-- **Not found:** "I didn't find anyone with those skills yet — let me help you set up the role." → Go to B2, skip Q2.
+After the manager describes what they need, do TWO things in your response:
+
+1. **Generate a short, professional project description** (2-4 sentences) that could be used as a job brief. Show it to the manager: "Here's a project brief based on what you've described:" followed by the description.
+
+2. **Extract the key skills** needed for this project and output them on a new line in this exact format:
+\`[TALENT_SEARCH: skill1, skill2, skill3]\`
+
+For example: \`[TALENT_SEARCH: UX Design, React, User Research]\`
+
+The system will automatically search the talent pool and return matching workers with their skills. You'll receive a system message with results.
+
+**When results arrive**, score each worker out of 10 based on how well their skills and experience match the project requirements. Present results like:
+
+"Here's who I found in your talent pool:"
+- **[Name]** — [Title] · Skills: [their skills] · **Match: 8/10** — [brief reason why they're a good/okay fit]
+- **[Name]** — [Title] · Skills: [their skills] · **Match: 6/10** — [reason]
+
+Then ask: "Would you like to hire one of these people?"
+
+- Pick someone → Ask Q1d. Then output JSON. Done.
+- None fit → "No problem — let me set up the role so we can find someone new." → Go to B2 Q3 onward (skip Q2, we already have the project description and skills).
+
+**If no workers found:** "I didn't find anyone with those skills in your talent pool yet. Let me set up the role." → Go to B2 Q3 onward.
 
 ### B2: Full discovery
 Ask these in order, ONE AT A TIME. Skip any already answered:
@@ -396,8 +414,8 @@ function detectQuickReplies(text) {
     return ['Replacing someone on my team', 'Coming in for a specific project'];
   if (t.includes('managing their day-to-day') || t.includes('managing this person') || t.includes('supervising their schedule') || t.includes('directing how'))
     return ['Yes, I\'ll manage them directly', 'No, they\'ll work independently'];
-  if ((t.includes('search your talent pool') || t.includes('search my talent pool') || t.includes('search the talent pool')) && (t.includes('describe the role') || t.includes('handle the rest')))
-    return ['Search my talent pool by skills', 'I\'ll describe the role'];
+  if ((t.includes('project brief') || t.includes('find the right talent') || t.includes('create a project')) && (t.includes('describe the role') || t.includes('just describe')))
+    return ['Create a project brief and find talent', 'I\'ll just describe the role'];
   if ((t.includes('specific project') || t.includes('defined deliverable')) && (t.includes('ongoing support') || t.includes('ongoing')))
     return ['Specific project with a deliverable', 'Ongoing support for my team'];
   if (t.includes('prefer to pay') && (t.includes('deliverable') || t.includes('hourly')))
@@ -531,7 +549,6 @@ function ChatPage({ config, setPage, page }) {
   const [error, setError] = useState(null);
   const [quickReplies, setQuickReplies] = useState(null);
   const [waitingForWorkerName, setWaitingForWorkerName] = useState(false);
-  const [waitingForSkillSearch, setWaitingForSkillSearch] = useState(false);
   const [foundWorkers, setFoundWorkers] = useState([]);
   const [listening, setListening] = useState(false);
   const chatRef = useRef(null);
@@ -572,12 +589,6 @@ function ChatPage({ config, setPage, page }) {
   const isAskingForName = (text) => {
     const t = text.toLowerCase();
     return t.includes("what's their name") || t.includes("what is their name") || t.includes("who is it") || t.includes("what's the person's name");
-  };
-
-  // Check if Claude is asking for skills to search the talent pool
-  const isAskingForSkills = (text) => {
-    const t = text.toLowerCase();
-    return (t.includes("what skills") || t.includes("what expertise") || t.includes("skills or expertise")) && (t.includes("looking for") || t.includes("are you"));
   };
 
   // Search Worksome talent pool by name
@@ -629,31 +640,6 @@ function ChatPage({ config, setPage, page }) {
       }
     }
 
-    // If we were waiting for skills to search, do the skill-based search
-    if (waitingForSkillSearch && userText) {
-      setWaitingForSkillSearch(false);
-      const result = await searchTalentPoolBySkills(userText);
-      const workers = result.workers || [];
-      const resolved = result.resolvedSkills || [];
-      const skillSummary = resolved.map(s => s.name).join(', ') || userText;
-
-      if (workers.length > 0) {
-        setFoundWorkers(workers);
-        const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
-        msgsToSend = [
-          ...allApiMsgs,
-          { role: 'assistant', text: `Let me search your talent pool for people with those skills...` },
-          { role: 'user', text: `[SYSTEM: Talent pool skill search for "${skillSummary}" found these matches:\n${workerList}\nPresent these matches to the manager. Ask if they'd like to hire one of these people, or if they'd prefer to continue setting up the role. If they pick someone, continue the flow as Path A1 (known worker confirmed). IMPORTANT: Include their ID in worker_id in the final JSON.]` }
-        ];
-      } else {
-        msgsToSend = [
-          ...allApiMsgs,
-          { role: 'assistant', text: `Let me search your talent pool for people with those skills...` },
-          { role: 'user', text: `[SYSTEM: Talent pool skill search for "${skillSummary}" found no matches. Tell the manager you didn't find anyone with those skills in their talent pool yet, and offer to help set up the role so they can find the right person. Continue to the full discovery flow (Path B2).]` }
-        ];
-      }
-    }
-
     try {
       const systemPrompt = buildSystemPrompt(config);
       const reply = await callClaude(config.api_key, systemPrompt, msgsToSend);
@@ -695,20 +681,97 @@ function ChatPage({ config, setPage, page }) {
         } catch {}
       }
 
-      setMessages(prev => [...prev, { role: 'assistant', text: cleanReply, time: new Date() }]);
-      setApiMessages(prev => [...prev, { role: 'assistant', text: reply }]);
+      // Check for [TALENT_SEARCH: ...] marker — auto-search talent pool
+      const talentSearchMatch = reply.match(/\[TALENT_SEARCH:\s*([^\]]+)\]/);
+      if (talentSearchMatch && !jsonMatch) {
+        const skillsText = talentSearchMatch[1].trim();
+        const displayReply = reply.replace(/\[TALENT_SEARCH:[^\]]+\]/, '').trim();
 
-      if (!jsonMatch) {
-        const qr = detectQuickReplies(cleanReply);
-        if (qr) setQuickReplies(qr);
+        // Show the project description part immediately
+        setMessages(prev => [...prev, { role: 'assistant', text: displayReply, time: new Date() }]);
+        // Add a searching indicator
+        setMessages(prev => [...prev, { role: 'assistant', text: '🔍 Searching your talent pool...', time: new Date(), isSearching: true }]);
 
-        // Detect if Claude is asking for the worker's name
-        if (isAskingForName(cleanReply)) {
-          setWaitingForWorkerName(true);
+        // Search the talent pool by the extracted skills
+        const result = await searchTalentPoolBySkills(skillsText);
+        const workers = result.workers || [];
+        const resolved = result.resolvedSkills || [];
+        const skillSummary = resolved.map(s => s.name).join(', ') || skillsText;
+
+        // Remove the searching indicator
+        setMessages(prev => prev.filter(m => !m.isSearching));
+
+        // Build the follow-up Claude call with results
+        const updatedApiMsgs = [...msgsToSend, { role: 'assistant', text: reply }];
+        let followUpMsgs;
+
+        if (workers.length > 0) {
+          setFoundWorkers(workers);
+          const workerList = workers.map(w =>
+            `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''}${w.skills && w.skills.length > 0 ? ` | Skills: ${w.skills.join(', ')}` : ''} [ID: ${w.id}]`
+          ).join('\n');
+          followUpMsgs = [
+            ...updatedApiMsgs,
+            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers:\n${workerList}\n\nScore each worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason. Then ask if the manager wants to hire one of them. IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]` }
+          ];
+        } else {
+          followUpMsgs = [
+            ...updatedApiMsgs,
+            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches. Tell the manager you didn't find anyone with those skills in their talent pool yet. Offer to set up the role so they can find the right person. Continue to Path B2 Q3 onward — you already have the project description and skills.]` }
+          ];
         }
-        // Detect if Claude is asking for skills to search talent pool
-        if (isAskingForSkills(cleanReply)) {
-          setWaitingForSkillSearch(true);
+
+        // Second Claude call with results
+        const followUpReply = await callClaude(config.api_key, buildSystemPrompt(config), followUpMsgs);
+        const followUpJson = followUpReply.match(/```json\s*([\s\S]*?)```/);
+        let followUpClean = followUpReply;
+
+        if (followUpJson) {
+          followUpClean = followUpReply.replace(/```json[\s\S]*?```/, '').trim();
+          try {
+            const parsed = JSON.parse(followUpJson[1]);
+            if (parsed.known_worker && !parsed.worker_id && foundWorkers.length > 0) {
+              const match = foundWorkers.find(w =>
+                parsed.worker_name && w.name && w.name.toLowerCase().includes(parsed.worker_name.toLowerCase())
+              ) || foundWorkers[0];
+              if (match) {
+                parsed.worker_id = match.id;
+                parsed.worker_email = parsed.worker_email || match.email;
+              }
+            }
+            setRouteResult(parsed);
+            if (parsed.route === 'worksome') {
+              setHandoffLoading(true);
+              fetch('/api/handoff/worksome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed) })
+                .then(r => r.json()).then(h => { setHandoffResult(h); setHandoffLoading(false); }).catch(() => setHandoffLoading(false));
+            }
+          } catch {}
+        }
+
+        setMessages(prev => [...prev.filter(m => !m.isSearching), { role: 'assistant', text: followUpClean, time: new Date() }]);
+        setApiMessages(prev => [...prev, { role: 'assistant', text: reply }, { role: 'user', text: followUpMsgs[followUpMsgs.length - 1].text }, { role: 'assistant', text: followUpReply }]);
+
+        if (!followUpJson) {
+          const qr = detectQuickReplies(followUpClean);
+          if (qr) setQuickReplies(qr);
+        }
+      } else {
+        // Normal flow — no talent search marker
+        setMessages(prev => [...prev, { role: 'assistant', text: cleanReply, time: new Date() }]);
+        setApiMessages(prev => [...prev, { role: 'assistant', text: reply }]);
+
+        if (!jsonMatch) {
+          const qr = detectQuickReplies(cleanReply);
+          if (qr) setQuickReplies(qr);
+
+          // Detect if Claude is asking for the worker's name
+          if (isAskingForName(cleanReply)) {
+            setWaitingForWorkerName(true);
+          }
+          // Detect if Claude is asking for skills to search talent pool
+          if (isAskingForSkills(cleanReply)) {
+            setWaitingForSkillSearch(true);
+          }
         }
       }
     } catch (err) {
@@ -744,7 +807,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setWaitingForSkillSearch(false); setListening(false); setFoundWorkers([]); if (recognitionRef.current) recognitionRef.current.stop(); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setListening(false); setFoundWorkers([]); if (recognitionRef.current) recognitionRef.current.stop(); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 
