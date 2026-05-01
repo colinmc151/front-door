@@ -148,6 +148,18 @@ const defaultConfig = {
     worksome: ['freelancer', 'independent consultant', 'sow', 'statement of work', 'fixed bid', 'milestone payment']
   },
   approval_gates: [{ condition: 'spend > 100000', action: 'procurement_review' }],
+  education: {
+    policies: [
+      { title: 'When to use each channel', body: 'Use Worksome for project-based freelancers, consultants, and independent contractors with defined deliverables. Use Beeline for ongoing staff augmentation, temp workers, and agency-sourced roles where you manage day-to-day work.' },
+      { title: 'Approval thresholds', body: 'Engagements under $50K can be approved by your direct manager. $50K–$100K requires VP approval. Over $100K requires procurement review. All engagements over 12 months need annual renewal.' },
+      { title: 'Compliance essentials', body: 'Never direct a freelancer\'s schedule or provide company equipment — this can trigger misclassification risk. Worksome handles IR35 and compliance checks automatically once the engagement is set up.' },
+    ],
+    guides: [
+      { title: 'Writing a great project brief', body: 'Be specific about deliverables, not just skills. Instead of "need a designer," say "redesign our checkout flow to improve mobile conversion." Include timeline, budget range, and whether it\'s remote or on-site.' },
+      { title: 'Onboarding a freelancer', body: 'Once routed, Worksome sends the contract and handles payments. You\'ll need to provide: project brief, access to tools/repos, a kickoff meeting, and a primary point of contact on your team.' },
+      { title: 'How the intake process works', body: 'Describe what you need in plain language. The system asks a few quick questions to understand the type of work, then routes you to the right platform. The whole process takes under 2 minutes.' },
+    ],
+  },
   api_key: 'server-managed'
 };
 
@@ -432,15 +444,41 @@ function detectQuickReplies(text) {
 // LEFT PANEL (Branding)
 // ══════════════════════════════════════
 function LeftPanel({ config, setPage, onLogoClick }) {
+  const [panelTab, setPanelTab] = useState('resources');
+  const [expandedCard, setExpandedCard] = useState(null);
   const worksomeCount = mockRequests.filter(r => r.route === 'worksome').length;
   const vmsCount = mockRequests.filter(r => r.route === 'vms').length;
   const avgSec = Math.round(mockRequests.reduce((a, r) => a + parseInt(r.duration), 0) / mockRequests.length);
   const recentThree = mockRequests.slice(0, 3);
   const hasHero = config.branding.hero_image_url && config.branding.hero_image_url.trim();
   const hasLogo = config.branding.logo_url && config.branding.logo_url.trim();
+  const edu = config.education || { policies: [], guides: [] };
 
   const headline = config.branding.headline || `Welcome back to\n${config.assistant_name}`;
   const subheadline = config.branding.subheadline || 'Your single front door for hiring. Describe what you need and we\'ll route you to the right place.';
+
+  const ExpandableCard = ({ item, idx, icon }) => {
+    const isOpen = expandedCard === idx;
+    return (
+      <div
+        style={{background: 'rgba(255,255,255,0.07)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', cursor: 'pointer', transition: 'background 0.15s'}}
+        onClick={() => setExpandedCard(isOpen ? null : idx)}
+        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.10)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}
+      >
+        <div style={{padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10}}>
+          <span style={{fontSize: 14, flexShrink: 0}}>{icon}</span>
+          <span style={{fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.9)', flex: 1}}>{item.title}</span>
+          <span style={{fontSize: 11, color: 'rgba(255,255,255,0.3)', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s'}}>▼</span>
+        </div>
+        {isOpen && (
+          <div style={{padding: '0 14px 14px 38px'}}>
+            <p style={{fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, margin: 0}}>{item.body}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="left-panel" style={{width: '42%', minWidth: 360, background: '#18181b', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '36px 44px', position: 'relative', overflow: 'hidden'}}>
@@ -472,12 +510,12 @@ function LeftPanel({ config, setPage, onLogoClick }) {
         <h1 style={{fontSize: 32, fontWeight: 700, lineHeight: 1.15, marginBottom: 14, color: 'white', letterSpacing: -0.5, whiteSpace: 'pre-line'}}>
           {headline}
         </h1>
-        <p style={{fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 1.65, marginBottom: 36, maxWidth: 340}}>
+        <p style={{fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 1.65, marginBottom: 24, maxWidth: 340}}>
           {subheadline}
         </p>
       </div>
 
-      {/* Hero image OR data cards */}
+      {/* Hero image OR tabbed content */}
       <div style={{position: 'relative', zIndex: 1}}>
         {hasHero ? (
           <div style={{display: 'flex', flexDirection: 'column', gap: 14}}>
@@ -485,44 +523,82 @@ function LeftPanel({ config, setPage, onLogoClick }) {
               style={{width: '100%', maxWidth: 360, borderRadius: 14, boxShadow: '0 8px 30px rgba(0,0,0,0.3)', objectFit: 'cover'}} />
           </div>
         ) : (
-          <div style={{display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 320}}>
-            {/* Recent requests card */}
-            <div style={{background: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.08)'}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14}}>
-                <span style={{fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5}}>Recent requests</span>
-                <span style={{fontSize: 12, color: '#a78bfa', fontWeight: 600}}>{mockRequests.length} total</span>
-              </div>
-              <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
-                {recentThree.map((r, i) => (
-                  <div key={i} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
-                      <div style={{width: 26, height: 26, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)'}}>{r.role[0]}</div>
-                      <span style={{fontSize: 13, color: 'rgba(255,255,255,0.85)'}}>{r.role}</span>
-                    </div>
-                    <span style={{fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
-                      background: r.route === 'worksome' ? 'rgba(167,139,250,0.2)' : 'rgba(251,191,36,0.2)',
-                      color: r.route === 'worksome' ? '#c4b5fd' : '#fbbf24'}}>
-                      {r.route === 'worksome' ? 'Worksome' : config.vms.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Stats row */}
-            <div style={{display: 'flex', gap: 10}}>
+          <div style={{display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 340}}>
+            {/* Tab bar */}
+            <div style={{display: 'flex', gap: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3}}>
               {[
-                { value: worksomeCount, label: 'Worksome', color: '#a78bfa' },
-                { value: vmsCount, label: config.vms.name, color: '#fbbf24' },
-                { value: avgSec + 's', label: 'Avg. time', color: 'white' }
-              ].map((s, i) => (
-                <div key={i} style={{flex: 1, background: 'rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center'}}>
-                  <div style={{fontSize: 20, fontWeight: 700, color: s.color}}>{s.value}</div>
-                  <div style={{fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 3, textTransform: 'uppercase', letterSpacing: 0.3}}>{s.label}</div>
-                </div>
+                { id: 'resources', label: 'Resources' },
+                { id: 'activity', label: 'Activity' },
+              ].map(tab => (
+                <button key={tab.id} onClick={() => { setExpandedCard(null); setPanelTab(tab.id); }}
+                  style={{flex: 1, fontFamily: 'var(--font)', fontSize: 11, fontWeight: 600, padding: '7px 0', border: 'none', borderRadius: 6, cursor: 'pointer', letterSpacing: 0.3, textTransform: 'uppercase', transition: 'all 0.15s',
+                    background: panelTab === tab.id ? 'rgba(255,255,255,0.12)' : 'transparent',
+                    color: panelTab === tab.id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
+                  }}>{tab.label}</button>
               ))}
             </div>
-          </div>
+
+            {panelTab === 'resources' && (
+              <div style={{display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 340, overflowY: 'auto'}}>
+                {edu.policies.length > 0 && (
+                  <>
+                    <div style={{fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5, padding: '6px 0 2px'}}>Policies</div>
+                    {edu.policies.map((p, i) => <ExpandableCard key={'p'+i} item={p} idx={'p'+i} icon="📋" />)}
+                  </>
+                )}
+                {edu.guides.length > 0 && (
+                  <>
+                    <div style={{fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5, padding: '8px 0 2px'}}>How-to guides</div>
+                    {edu.guides.map((g, i) => <ExpandableCard key={'g'+i} item={g} idx={'g'+i} icon="💡" />)}
+                  </>
+                )}
+                {edu.policies.length === 0 && edu.guides.length === 0 && (
+                  <div style={{padding: 16, textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12}}>
+                    No resources configured yet. Add policies and guides in Settings.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {panelTab === 'activity' && (
+              <div style={{display: 'flex', flexDirection: 'column', gap: 12}}>
+                {/* Recent requests card */}
+                <div style={{background: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px', border: '1px solid rgba(255,255,255,0.08)'}}>
+                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14}}>
+                    <span style={{fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.5}}>Recent requests</span>
+                    <span style={{fontSize: 12, color: '#a78bfa', fontWeight: 600}}>{mockRequests.length} total</span>
+                  </div>
+                  <div style={{display: 'flex', flexDirection: 'column', gap: 10}}>
+                    {recentThree.map((r, i) => (
+                      <div key={i} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                        <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
+                          <div style={{width: 26, height: 26, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)'}}>{r.role[0]}</div>
+                          <span style={{fontSize: 13, color: 'rgba(255,255,255,0.85)'}}>{r.role}</span>
+                        </div>
+                        <span style={{fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                          background: r.route === 'worksome' ? 'rgba(167,139,250,0.2)' : 'rgba(251,191,36,0.2)',
+                          color: r.route === 'worksome' ? '#c4b5fd' : '#fbbf24'}}>
+                          {r.route === 'worksome' ? 'Worksome' : config.vms.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stats row */}
+                <div style={{display: 'flex', gap: 10}}>
+                  {[
+                    { value: worksomeCount, label: 'Worksome', color: '#a78bfa' },
+                    { value: vmsCount, label: config.vms.name, color: '#fbbf24' },
+                    { value: avgSec + 's', label: 'Avg. time', color: 'white' }
+                  ].map((s, i) => (
+                    <div key={i} style={{flex: 1, background: 'rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 10px', border: '1px solid rgba(255,255,255,0.08)', textAlign: 'center'}}>
+                      <div style={{fontSize: 20, fontWeight: 700, color: s.color}}>{s.value}</div>
+                      <div style={{fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 3, textTransform: 'uppercase', letterSpacing: 0.3}}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
         )}
       </div>
 

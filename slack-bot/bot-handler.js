@@ -65,6 +65,40 @@ For both A1 and A2: after Q1d, you're done. Say "Perfect — I'm setting this up
 
 ## Path B: I need to find someone
 
+Q1b_discovery: "Would you like me to use AI to create a project brief? I can also search your talent pool for the best match."
+- YES → **B1**
+- NO / JUST DESCRIBE → **B2**
+
+### B1: AI Project Brief + Talent Match
+Q_project: "Tell me what you need this person to do — what's the project or deliverable?"
+
+After the manager describes what they need, do TWO things in your response:
+
+1. **Generate a short, professional project description** (2-4 sentences) that could be used as a job brief. Show it to the manager: "Here's a project brief based on what you've described:" followed by the description.
+
+2. **Extract the key skills** needed for this project and output them on a new line in this exact format:
+\`[TALENT_SEARCH: skill1, skill2, skill3]\`
+
+For example: \`[TALENT_SEARCH: UX Design, React, User Research]\`
+
+The system will automatically search the talent pool and return matching workers with their skills. You'll receive a system message with results.
+
+**When results arrive**, score each worker out of 10 based on how well their skills and experience match the project requirements. Present results like:
+
+"Here's who I found in your talent pool:"
+- *[Name]* — [Title] · Skills: [their skills] · *Match: 8/10* — [brief reason why they're a good/okay fit]
+- *[Name]* — [Title] · Skills: [their skills] · *Match: 6/10* — [reason]
+
+Then ask: "Would you like to hire one of these people?"
+
+- Pick someone → Ask Q1d. Then output JSON. Done.
+- None fit → "No problem — let me set up the role so we can find someone new." → Go to B2 Q3 onward (skip Q2, we already have the project description and skills).
+
+**If no workers found:** "I didn't find anyone with those skills in your talent pool yet. Let me set up the role." → Go to B2 Q3 onward.
+
+### B2: Full discovery
+Ask these in order, ONE AT A TIME. Skip any already answered:
+
 Q2: "Tell me about the work you need done — what's the role or project?"
 Q3: "Is this for a specific project with a deliverable, or ongoing support?" (weight: ${c.weights.deliverable_or_ongoing})
 Q4: "How long do you expect this to last?" (weight: ${c.weights.duration})
@@ -75,15 +109,15 @@ If ambiguous (scores within 1 point) → ask tiebreakers:
 Q6: "Would you prefer to pay for specific deliverables or on an hourly/daily rate?" (weight: ${c.weights.payment_model})
 Q7: "Will you be managing this person's day-to-day work?" (weight: ${c.weights.sdc})
 
-### Enrichment (B only)
+### Enrichment (B2 only)
 "Great — I know exactly where to send this. Just a couple more details."
 
-Ask ONE AT A TIME, but ONLY what's missing:
+Ask ONE AT A TIME, but ONLY what's missing. Skip anything already covered:
 E1: "Can you give me a quick summary of what this person will be doing?" (skip if Q2 covered it)
-E2: "What skills or experience are most important?" (SKIP if skills were already provided)
+E2: "What skills or experience are most important?" (SKIP if skills were provided in B1 or anywhere else)
 E3: "Will this be remote, on-site, or hybrid?"
 
-Once you have a description and skills, output JSON.
+That's it. You do NOT need to ask about budget — keep it short. Once you have a description and skills, output JSON.
 
 ---
 
@@ -94,7 +128,7 @@ VMS if: ${c.knockouts.vms.join(", ")} or 10+ identical roles
 Worksome if: ${c.knockouts.worksome.join(", ")}
 After a knockout, still ask remaining enrichment questions.
 
-### Scoring (B only)
+### Scoring (B2 only)
 Deliverable/ongoing: wt ${c.weights.deliverable_or_ongoing} | Duration: wt ${c.weights.duration} | Headcount: wt ${c.weights.headcount} | Payment: wt ${c.weights.payment_model} | SDC: wt ${c.weights.sdc}
 Route clear if one side ≥ 5. Ambiguous if diff ≤ 1.
 
@@ -108,7 +142,7 @@ When ready, say your confirmation, then on a NEW LINE output EXACTLY:
 {"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"2-3 sentence job description","skills":["skill1","skill2"],"known_worker":true_or_false,"worker_name":"...or_null","worker_first_name":"...or_null","worker_last_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"worker_country":"...or_null","worker_skills":["skill1","skill2"],"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","budget":"...or_null"}
 \`\`\`
 
-For fast-track paths (A1, A2), it's fine if some fields are null — output what you have.
+For fast-track paths (A1, A2, B1-pick), it's fine if some fields are null — output what you have.
 
 ## Rules
 1. ONE question at a time. Never stack.
@@ -116,7 +150,7 @@ For fast-track paths (A1, A2), it's fine if some fields are null — output what
 3. Never mention Worksome, ${c.vms.name}, SDC, scoring, or routing.
 4. No procurement jargon.
 5. Be conversational — like a helpful colleague, not a form.
-6. Fast-track paths (A1, A2) should feel like 3-4 messages total. Don't pad them with extra questions.`;
+6. Fast-track paths (A1, A2, B1-pick) should feel like 3-4 messages total. Don't pad them with extra questions.`;
 }
 
 const sessions = new Map();
@@ -137,6 +171,8 @@ function detectQuickReplies(text) {
     return ["Replacing someone on my team", "For a specific project"];
   if (t.includes("managing their day-to-day") || t.includes("managing this person") || t.includes("supervising their schedule"))
     return ["Yes, I'll manage them directly", "No, they'll work independently"];
+  if (t.includes("project brief") && (t.includes("ai") || t.includes("talent pool") || t.includes("best match")))
+    return ["Yes, create a project brief", "No, I'll just describe the role"];
   if ((t.includes("specific project") || t.includes("defined deliverable")) && t.includes("ongoing"))
     return ["Specific project with a deliverable", "Ongoing support for my team"];
   if (t.includes("prefer to pay") && (t.includes("deliverable") || t.includes("hourly")))
@@ -232,6 +268,118 @@ module.exports.register = function (app, anthropic) {
     return response.content[0].text;
   }
 
+  // Call Claude with an explicit message array (for follow-up calls)
+  async function callClaudeWithMessages(msgArray) {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 800,
+      system: buildSystemPrompt(),
+      messages: msgArray,
+    });
+    return response.content[0].text;
+  }
+
+  // ─── Shared reply processing (used by both message + quick_reply) ───
+  async function processReply(userId, channel, client) {
+    const history = sessions.get(userId);
+    const reply = await callClaude(userId);
+
+    // Check for [TALENT_SEARCH: ...] marker — B1 AI Project Brief flow
+    const talentSearchMatch = reply.match(/\[TALENT_SEARCH:\s*([^\]]+)\]/);
+
+    if (talentSearchMatch && !parseRoute(reply)) {
+      const skillsText = talentSearchMatch[1].trim();
+      const displayReply = reply.replace(/\[TALENT_SEARCH:[^\]]+\]/, '').trim();
+      const cleanDisplay = cleanReply(displayReply);
+
+      // Show the project brief immediately
+      await client.chat.postMessage({
+        channel,
+        text: cleanDisplay,
+        blocks: buildBlocks(cleanDisplay, null, null),
+      });
+
+      // Show searching indicator
+      const searchMsg = await client.chat.postMessage({
+        channel,
+        text: `:mag: Searching your talent pool for: ${skillsText}...`,
+      });
+
+      // Search talent pool by skills
+      let workers = [];
+      let resolved = [];
+      try {
+        const result = await worksome.searchWorkersBySkills(skillsText.split(',').map(s => s.trim()));
+        workers = result.workers || [];
+        resolved = result.resolvedSkills || [];
+      } catch (err) {
+        console.warn("[Slack] Skill search failed:", err.message);
+      }
+
+      const skillSummary = resolved.map(s => s.name).join(', ') || skillsText;
+
+      // Build follow-up message array with results
+      history.push({ role: "assistant", content: reply });
+      let followUpMsg;
+
+      if (workers.length > 0) {
+        const workerList = workers.map(w =>
+          `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''}${w.skills && w.skills.length > 0 ? ` | Skills: ${w.skills.join(', ')}` : ''} [ID: ${w.id}]`
+        ).join('\n');
+        followUpMsg = `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers:\n${workerList}\n\nScore each worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason. Then ask if the manager wants to hire one of them. IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]`;
+      } else {
+        followUpMsg = `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches. Tell the manager you didn't find anyone with those skills in their talent pool yet. Offer to set up the role so they can find the right person. Continue to Path B2 Q3 onward — you already have the project description and skills.]`;
+      }
+
+      history.push({ role: "user", content: followUpMsg });
+
+      // Second Claude call with talent pool results
+      const followUpReply = await callClaudeWithMessages(history);
+      const routeResult = parseRoute(followUpReply);
+      const followUpClean = cleanReply(followUpReply);
+      const quickReplies = routeResult ? null : detectQuickReplies(followUpClean);
+      history.push({ role: "assistant", content: followUpReply });
+
+      // Attempt Worksome handoff if routed
+      if (routeResult && routeResult.route === "worksome") {
+        try {
+          const handoffData = await worksome.handoff(routeResult);
+          routeResult._handoff = handoffData;
+        } catch (err) {
+          console.warn("[Slack] Worksome handoff failed (non-fatal):", err.message);
+        }
+      }
+
+      await client.chat.postMessage({ channel, text: followUpClean, blocks: buildBlocks(followUpClean, quickReplies, routeResult) });
+      if (routeResult) { sessions.delete(userId); waitingForName.delete(userId); }
+      return;
+    }
+
+    // Normal flow — no talent search marker
+    const routeResult = parseRoute(reply);
+    const clean = cleanReply(reply);
+    const quickReplies = routeResult ? null : detectQuickReplies(clean);
+
+    // Check if Claude is now asking for the worker's name
+    if (!routeResult && isAskingForName(clean)) {
+      waitingForName.add(userId);
+    }
+    history.push({ role: "assistant", content: reply });
+
+    // Attempt Worksome handoff if routed there
+    if (routeResult && routeResult.route === "worksome") {
+      try {
+        const handoffData = await worksome.handoff(routeResult);
+        routeResult._handoff = handoffData;
+      } catch (err) {
+        console.warn("[Slack] Worksome handoff failed (non-fatal):", err.message);
+      }
+    }
+
+    await client.chat.postMessage({ channel, text: clean, blocks: buildBlocks(clean, quickReplies, routeResult) });
+    if (routeResult) { sessions.delete(userId); waitingForName.delete(userId); }
+  }
+
   app.command("/hire", async ({ command, ack, client }) => {
     await ack();
     const userId = command.user_id;
@@ -259,7 +407,6 @@ module.exports.register = function (app, anthropic) {
       waitingForName.delete(userId);
       try {
         const workers = await worksome.searchWorkers(message.text.trim());
-        // Add assistant ack + system result to maintain alternating roles
         history.push({ role: "assistant", content: `Let me check the talent pool for "${message.text}"...` });
         if (workers.length > 0) {
           const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
@@ -273,29 +420,7 @@ module.exports.register = function (app, anthropic) {
     }
 
     try {
-      const reply = await callClaude(userId);
-      const routeResult = parseRoute(reply);
-      const clean = cleanReply(reply);
-      const quickReplies = routeResult ? null : detectQuickReplies(clean);
-
-      // Check if Claude is now asking for the worker's name
-      if (!routeResult && isAskingForName(clean)) {
-        waitingForName.add(userId);
-      }
-      history.push({ role: "assistant", content: reply });
-
-      // Attempt Worksome handoff if routed there
-      if (routeResult && routeResult.route === "worksome") {
-        try {
-          const handoff = await worksome.handoff(routeResult);
-          routeResult._handoff = handoff;
-        } catch (err) {
-          console.warn("[Slack] Worksome handoff failed (non-fatal):", err.message);
-        }
-      }
-
-      await client.chat.postMessage({ channel: message.channel, text: clean, blocks: buildBlocks(clean, quickReplies, routeResult) });
-      if (routeResult) sessions.delete(userId);
+      await processReply(userId, message.channel, client);
     } catch (err) {
       console.error("Claude API error:", err.message);
       await client.chat.postMessage({ channel: message.channel, text: "Something went wrong — please try again or type `/hire` to restart." });
@@ -315,29 +440,7 @@ module.exports.register = function (app, anthropic) {
     const history = sessions.get(userId);
     history.push({ role: "user", content: text });
     try {
-      const reply = await callClaude(userId);
-      const routeResult = parseRoute(reply);
-      const clean = cleanReply(reply);
-      const quickReplies = routeResult ? null : detectQuickReplies(clean);
-      history.push({ role: "assistant", content: reply });
-
-      // Check if Claude is asking for the worker's name
-      if (!routeResult && isAskingForName(clean)) {
-        waitingForName.add(userId);
-      }
-
-      // Attempt Worksome handoff if routed there
-      if (routeResult && routeResult.route === "worksome") {
-        try {
-          const handoff = await worksome.handoff(routeResult);
-          routeResult._handoff = handoff;
-        } catch (err) {
-          console.warn("[Slack] Worksome handoff failed (non-fatal):", err.message);
-        }
-      }
-
-      await client.chat.postMessage({ channel, text: clean, blocks: buildBlocks(clean, quickReplies, routeResult) });
-      if (routeResult) { sessions.delete(userId); waitingForName.delete(userId); }
+      await processReply(userId, channel, client);
     } catch (err) {
       console.error("Claude API error:", err.message);
       await client.chat.postMessage({ channel, text: "Something went wrong — please try again or type `/hire` to restart." });
