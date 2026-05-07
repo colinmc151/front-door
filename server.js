@@ -141,8 +141,23 @@ if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
 
   slack.start().then(() => {
     console.log("⚡ Slack bot connected");
+  }).catch((err) => {
+    console.error("⚡ Slack bot failed to connect:", err.message);
+  });
+
+  // Handle Slack disconnections gracefully instead of crashing
+  slack.error(async (error) => {
+    console.error("⚡ Slack error (non-fatal):", error.message || error);
   });
 }
+
+// ─── Global error handlers (prevent crash loops) ─────
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception (kept alive):", err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection (kept alive):", reason);
+});
 
 // ─── Start server ─────────────────────────────────────
 const PORT = process.env.PORT || 3000;
