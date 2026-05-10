@@ -723,6 +723,7 @@ function ChatPage({ config, setPage, page }) {
             location: null,
             roleTitle: ''
           };
+          console.log('[Front Door] Setting ghDiscovery with criteria:', ghCriteria);
           setGhDiscovery({ criteria: ghCriteria, sessionId: 'default' });
 
           followUpMsgs = [
@@ -1117,7 +1118,9 @@ function GitHubDiscoveryPanel({ criteria, sessionId, config, onClose }) {
 
   // Auto-search on mount if criteria provided
   React.useEffect(() => {
+    console.log('[GitHubDiscovery] Panel mounted, criteria:', criteria);
     if (criteria && (criteria.skills?.length || criteria.languages?.length || criteria.keywords?.length)) {
+      console.log('[GitHubDiscovery] Auto-searching...');
       runSearch(criteria);
     }
   }, []);
@@ -1138,9 +1141,11 @@ function GitHubDiscoveryPanel({ criteria, sessionId, config, onClose }) {
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || 'Search failed');
+      console.log('[GitHubDiscovery] Search returned', (data.leads || []).length, 'leads');
       setLeads(data.leads || []);
       setSearched(true);
     } catch (err) {
+      console.error('[GitHubDiscovery] Search error:', err.message);
       setSearchError(err.message);
     }
     setSearchLoading(false);
