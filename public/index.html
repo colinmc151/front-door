@@ -1116,10 +1116,21 @@ function GitHubDiscoveryPanel({ criteria, sessionId, config, onClose }) {
   const [searched, setSearched] = React.useState(false);
   const [tab, setTab] = React.useState('results'); // results | shortlist
   const [inviteModal, setInviteModal] = React.useState(null); // lead with draft
+  const panelRef = React.useRef(null);
+
+  // Scroll panel into view when it renders or when leads arrive
+  React.useEffect(() => {
+    if (panelRef.current) {
+      setTimeout(() => panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    }
+  }, [leads, searchLoading]);
 
   // Auto-search on mount if criteria provided
   React.useEffect(() => {
     console.log('[GitHubDiscovery] Panel mounted, criteria:', criteria);
+    if (panelRef.current) {
+      panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     if (criteria && (criteria.skills?.length || criteria.languages?.length || criteria.keywords?.length)) {
       console.log('[GitHubDiscovery] Auto-searching...');
       runSearch(criteria);
@@ -1192,7 +1203,7 @@ function GitHubDiscoveryPanel({ criteria, sessionId, config, onClose }) {
   const isShortlisted = (login) => shortlist.some(l => l.githubLogin === login);
 
   return (
-    <div className="gh-panel" style={{marginTop: 12, maxWidth: 500}}>
+    <div ref={panelRef} className="gh-panel" style={{marginTop: 12, maxWidth: 500}}>
       <div className="gh-header">
         <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
           <span style={{fontSize: 14, fontWeight: 600}}>GitHub Discovery</span>
