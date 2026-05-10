@@ -408,7 +408,7 @@ I came across your public GitHub work and thought your experience with ${matched
 
 The role is for ${roleTitle || "a technical project"} and would be managed through Worksome for contracting, compliance, and payment.
 
-If you are open to hearing more, you can review the opportunity and create a Worksome profile here:
+If you are open to hearing more, you can create a Worksome profile here and I'll send you the job to review:
 ${inviteLink}
 
 Best,
