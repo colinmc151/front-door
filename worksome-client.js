@@ -8,13 +8,23 @@ const WORKSOME_API_TOKEN = process.env.WORKSOME_API_TOKEN;
 // Cache the account ID so we only fetch it once
 let _cachedAccountId = null;
 
+// Validate account ID format (prevents GraphQL injection via string interpolation)
+function safeAccountId(id) {
+  if (!id) return null;
+  if (!/^[a-zA-Z0-9_-]+$/.test(String(id))) {
+    console.warn(`[Worksome] Suspicious account ID rejected: ${id}`);
+    return null;
+  }
+  return String(id);
+}
+
 async function getAccountId() {
   if (_cachedAccountId) return _cachedAccountId;
   try {
     const data = await graphql(`{ accounts { id name } }`);
     const accounts = data.accounts || [];
     if (accounts.length > 0) {
-      _cachedAccountId = accounts[0].id;
+      _cachedAccountId = safeAccountId(accounts[0].id);
       console.log(`[Worksome] Using account: ${accounts[0].name} (${_cachedAccountId})`);
     }
   } catch (err) {
@@ -31,6 +41,9 @@ async function graphql(query, variables = {}) {
   // Verbose logging disabled for production
   // console.log(`[Worksome] GraphQL request to ${WORKSOME_API_URL}`);
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
   const res = await fetch(WORKSOME_API_URL, {
     method: "POST",
     headers: {
@@ -39,7 +52,10 @@ async function graphql(query, variables = {}) {
       Authorization: `Bearer ${WORKSOME_API_TOKEN}`,
     },
     body: JSON.stringify({ query, variables }),
+    signal: controller.signal,
   });
+
+  clearTimeout(timeout);
 
   const data = await res.json();
 

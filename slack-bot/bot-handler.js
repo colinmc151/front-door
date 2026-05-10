@@ -153,8 +153,39 @@ For fast-track paths (A1, A2, B1-pick), it's fine if some fields are null — ou
 6. Fast-track paths (A1, A2, B1-pick) should feel like 3-4 messages total. Don't pad them with extra questions.`;
 }
 
-const sessions = new Map();
-const waitingForName = new Set(); // Track users in the "what's their name?" state
+const sessions = new Map();          // userId → messages array
+const sessionTimestamps = new Map(); // userId → last active timestamp
+const waitingForName = new Set();    // Track users in the "what's their name?" state
+const SESSION_TTL = 30 * 60_000;     // 30 minutes
+
+// Touch session timestamp on any access
+const origSet = sessions.set.bind(sessions);
+sessions.set = function(key, value) {
+  sessionTimestamps.set(key, Date.now());
+  return origSet(key, value);
+};
+const origGet = sessions.get.bind(sessions);
+sessions.get = function(key) {
+  sessionTimestamps.set(key, Date.now());
+  return origGet(key);
+};
+const origDelete = sessions.delete.bind(sessions);
+sessions.delete = function(key) {
+  sessionTimestamps.delete(key);
+  return origDelete(key);
+};
+
+// Clean up stale sessions every 5 minutes
+setInterval(() => {
+  const cutoff = Date.now() - SESSION_TTL;
+  for (const [userId, ts] of sessionTimestamps) {
+    if (ts < cutoff) {
+      sessions.delete(userId);
+      waitingForName.delete(userId);
+      console.log(`[Slack] Expired session for user ${userId}`);
+    }
+  }
+}, 300_000);
 
 function isAskingForName(text) {
   const t = text.toLowerCase();
