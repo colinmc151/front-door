@@ -892,6 +892,16 @@ function ChatPage({ config, setPage, page }) {
                   </div>
                 )}
 
+                {/* GitHub Discovery panel — inline after messages */}
+                {ghDiscovery && (
+                  <GitHubDiscoveryPanel
+                    criteria={ghDiscovery.criteria}
+                    sessionId={ghDiscovery.sessionId}
+                    config={config}
+                    onClose={() => setGhDiscovery(null)}
+                  />
+                )}
+
                 {quickReplies && !loading && !routeResult && (
                   <div className="chat-options" style={{marginLeft: 38}}>
                     {quickReplies.map((qr, i) => (
@@ -961,15 +971,6 @@ function ChatPage({ config, setPage, page }) {
                   );
                 })()}
 
-                {/* GitHub Discovery panel — shown when talent pool has no matches */}
-                {ghDiscovery && (
-                  <GitHubDiscoveryPanel
-                    criteria={ghDiscovery.criteria}
-                    sessionId={ghDiscovery.sessionId}
-                    config={config}
-                    onClose={() => setGhDiscovery(null)}
-                  />
-                )}
               </div>
 
               {/* Input bar */}
