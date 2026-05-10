@@ -101,6 +101,27 @@
     50% { box-shadow: 0 0 0 8px rgba(220, 38, 38, 0); }
   }
 
+  /* GitHub Discovery */
+  .gh-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .gh-header { padding: 14px 16px; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; }
+  .gh-card { padding: 14px 16px; border-bottom: 1px solid var(--border-light); transition: background 0.15s; }
+  .gh-card:hover { background: #fafbfc; }
+  .gh-card:last-child { border-bottom: none; }
+  .gh-score { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .gh-score.high { background: #dcfce7; color: #15803d; }
+  .gh-score.medium { background: #fef3c7; color: #92400e; }
+  .gh-score.low { background: #fee2e2; color: #991b1b; }
+  .gh-tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg); color: var(--text-2); margin: 2px; }
+  .gh-tag.matched { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  .gh-repo { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+  .gh-repo a { color: var(--blue); text-decoration: none; }
+  .gh-repo a:hover { text-decoration: underline; }
+  .gh-actions { display: flex; gap: 6px; margin-top: 10px; }
+  .gh-badge-source { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: #1b1f23; color: white; letter-spacing: 0.3px; }
+  .gh-expand { cursor: pointer; user-select: none; }
+  .gh-search-bar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-light); flex-wrap: wrap; }
+  .gh-empty { padding: 32px 16px; text-align: center; color: var(--text-3); font-size: 13px; }
+
   /* ═══ MOBILE ═══ */
   @media (max-width: 768px) {
     .left-panel { display: none !important; }
@@ -528,6 +549,7 @@ function ChatPage({ config, setPage, page }) {
   const [waitingForWorkerName, setWaitingForWorkerName] = useState(false);
   const [foundWorkers, setFoundWorkers] = useState([]);
   const [listening, setListening] = useState(false);
+  const [ghDiscovery, setGhDiscovery] = useState(null); // { criteria, sessionId } when active
   const chatRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -693,9 +715,19 @@ function ChatPage({ config, setPage, page }) {
             { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers:\n${workerList}\n\nScore each worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason. Then ask if the manager wants to hire one of them. IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]` }
           ];
         } else {
+          // Trigger GitHub Discovery panel
+          const ghCriteria = {
+            skills: resolved.map(s => s.name),
+            languages: [],
+            keywords: skillsText.split(',').map(s => s.trim()).filter(Boolean),
+            location: null,
+            roleTitle: ''
+          };
+          setGhDiscovery({ criteria: ghCriteria, sessionId: 'default' });
+
           followUpMsgs = [
             ...updatedApiMsgs,
-            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches. Tell the manager you didn't find anyone with those skills in their talent pool yet. Offer to set up the role so they can find the right person. Continue to Path B2 Q3 onward — you already have the project description and skills.]` }
+            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches in the internal pool. I've opened a GitHub Discovery panel showing external technical profiles that match. Tell the manager you didn't find anyone in their Worksome talent pool, but you've found some external GitHub profiles with relevant public work. They can review, shortlist, and draft an invite to bring them onto Worksome. Also offer to set up the role so they can find the right person through other channels. Continue to Path B2 Q3 onward — you already have the project description and skills.]` }
           ];
         }
 
@@ -781,7 +813,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setListening(false); setFoundWorkers([]); if (recognitionRef.current) recognitionRef.current.stop(); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setListening(false); setFoundWorkers([]); setGhDiscovery(null); if (recognitionRef.current) recognitionRef.current.stop(); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 
@@ -927,6 +959,16 @@ function ChatPage({ config, setPage, page }) {
                     </div>
                   );
                 })()}
+
+                {/* GitHub Discovery panel — shown when talent pool has no matches */}
+                {ghDiscovery && (
+                  <GitHubDiscoveryPanel
+                    criteria={ghDiscovery.criteria}
+                    sessionId={ghDiscovery.sessionId}
+                    config={config}
+                    onClose={() => setGhDiscovery(null)}
+                  />
+                )}
               </div>
 
               {/* Input bar */}
@@ -961,6 +1003,292 @@ function ChatPage({ config, setPage, page }) {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// GITHUB DISCOVERY COMPONENTS
+// ══════════════════════════════════════
+
+function ExternalTalentCard({ lead, onShortlist, onInvite, isShortlisted }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const scoreClass = lead.fitScore >= 65 ? 'high' : lead.fitScore >= 40 ? 'medium' : 'low';
+  const confidenceLabel = lead.confidenceScore >= 70 ? 'High' : lead.confidenceScore >= 45 ? 'Medium' : 'Low';
+
+  const topRepos = (lead.relevantRepositories || []).slice(0, expanded ? 4 : 2);
+  const allLangs = lead.topLanguages || [];
+  const matchedSkills = lead.inferredSkills || [];
+
+  return (
+    <div className="gh-card">
+      <div style={{display: 'flex', gap: 12, alignItems: 'flex-start'}}>
+        {lead.avatarUrl && (
+          <img src={lead.avatarUrl} alt="" style={{width: 40, height: 40, borderRadius: 8, flexShrink: 0}} />
+        )}
+        <div style={{flex: 1, minWidth: 0}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'}}>
+            <span style={{fontWeight: 600, fontSize: 14}}>{lead.displayName || lead.githubLogin}</span>
+            <span className="gh-badge-source">GitHub</span>
+            {lead.activityRecency && lead.activityRecency !== 'unknown' && (
+              <span className="badge badge-green" style={{fontSize: 10}}>Active {lead.activityRecency.replace(/_/g, ' ')}</span>
+            )}
+          </div>
+          <div style={{fontSize: 12, color: 'var(--text-3)', marginTop: 2}}>
+            <a href={lead.githubProfileUrl} target="_blank" rel="noopener noreferrer" style={{color: 'var(--text-3)', textDecoration: 'none'}}>@{lead.githubLogin}</a>
+            {lead.location && <span> &middot; {lead.location}</span>}
+          </div>
+          {lead.bio && <div style={{fontSize: 13, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.4}}>{lead.bio.slice(0, 120)}{lead.bio.length > 120 ? '...' : ''}</div>}
+        </div>
+
+        <div className={`gh-score ${scoreClass}`} title={`Fit: ${lead.fitScore}/100`}>
+          {lead.fitScore}
+        </div>
+      </div>
+
+      {/* Languages & skills */}
+      <div style={{marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 0}}>
+        {matchedSkills.map(s => <span key={s} className="gh-tag matched">{s}</span>)}
+        {allLangs.filter(l => !matchedSkills.map(s => s.toLowerCase()).includes(l.toLowerCase())).slice(0, 4).map(l => <span key={l} className="gh-tag">{l}</span>)}
+      </div>
+
+      {/* Top repos */}
+      {topRepos.length > 0 && (
+        <div style={{marginTop: 6}}>
+          {topRepos.map(r => (
+            <div key={r.name} className="gh-repo">
+              <a href={r.url} target="_blank" rel="noopener noreferrer">{r.name.split('/').pop()}</a>
+              {r.stars > 0 && <span> &middot; {r.stars} stars</span>}
+              {r.language && <span> &middot; {r.language}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Explanation & confidence */}
+      <div style={{marginTop: 6, fontSize: 11, color: 'var(--text-3)'}}>
+        {lead.fitExplanation} &middot; Confidence: {confidenceLabel} ({lead.confidenceScore}%)
+      </div>
+
+      {/* Expand toggle for breakdown */}
+      {expanded && lead.fitBreakdown && (
+        <div style={{marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 'var(--radius)', fontSize: 11, color: 'var(--text-2)'}}>
+          {Object.entries(lead.fitBreakdown).map(([key, val]) => (
+            <div key={key} style={{display: 'flex', justifyContent: 'space-between', marginBottom: 2}}>
+              <span>{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+              <span style={{fontWeight: 600}}>{val.weighted}/{Math.round(val.weight * 100)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="gh-actions">
+        <button
+          className={`btn btn-sm ${isShortlisted ? 'btn-ghost' : 'btn-primary'}`}
+          onClick={() => !isShortlisted && onShortlist(lead)}
+          disabled={isShortlisted}
+          style={isShortlisted ? {opacity: 0.7, cursor: 'default'} : {}}
+        >
+          {isShortlisted ? 'Shortlisted' : 'Shortlist'}
+        </button>
+        {isShortlisted && (
+          <button className="btn btn-sm" onClick={() => onInvite(lead)}>
+            Draft invite
+          </button>
+        )}
+        <button className="btn btn-sm btn-ghost gh-expand" onClick={() => setExpanded(!expanded)} style={{marginLeft: 'auto'}}>
+          {expanded ? 'Less' : 'More'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GitHubDiscoveryPanel({ criteria, sessionId, config, onClose }) {
+  const [leads, setLeads] = React.useState([]);
+  const [shortlist, setShortlist] = React.useState([]);
+  const [searchLoading, setSearchLoading] = React.useState(false);
+  const [searchError, setSearchError] = React.useState(null);
+  const [searched, setSearched] = React.useState(false);
+  const [tab, setTab] = React.useState('results'); // results | shortlist
+  const [inviteModal, setInviteModal] = React.useState(null); // lead with draft
+
+  // Auto-search on mount if criteria provided
+  React.useEffect(() => {
+    if (criteria && (criteria.skills?.length || criteria.languages?.length || criteria.keywords?.length)) {
+      runSearch(criteria);
+    }
+  }, []);
+
+  const runSearch = async (c) => {
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      await initApiKey();
+      const params = new URLSearchParams();
+      if (c.skills?.length) params.set('skills', c.skills.join(','));
+      if (c.languages?.length) params.set('languages', c.languages.join(','));
+      if (c.keywords?.length) params.set('keywords', c.keywords.join(','));
+      if (c.location) params.set('location', c.location);
+      params.set('maxResults', '10');
+
+      const res = await fetch(`/api/github/search?${params}`, { headers: apiHeaders() });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Search failed');
+      setLeads(data.leads || []);
+      setSearched(true);
+    } catch (err) {
+      setSearchError(err.message);
+    }
+    setSearchLoading(false);
+  };
+
+  const handleShortlist = async (lead) => {
+    try {
+      await initApiKey();
+      const res = await fetch('/api/github/shortlist', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ sessionId: sessionId || 'default', lead })
+      });
+      const data = await res.json();
+      setShortlist(data.shortlist || []);
+    } catch (err) {
+      console.error('Shortlist error:', err);
+    }
+  };
+
+  const handleInvite = async (lead) => {
+    try {
+      await initApiKey();
+      const res = await fetch('/api/github/invite', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          sessionId: sessionId || 'default',
+          githubLogin: lead.githubLogin,
+          roleTitle: criteria?.roleTitle || 'a technical role',
+          skills: lead.inferredSkills,
+          clientName: config?.client_name || 'our team',
+          senderName: ''
+        })
+      });
+      const data = await res.json();
+      setInviteModal({ lead, ...data });
+    } catch (err) {
+      console.error('Invite error:', err);
+    }
+  };
+
+  const isShortlisted = (login) => shortlist.some(l => l.githubLogin === login);
+
+  return (
+    <div className="gh-panel" style={{marginTop: 12, maxWidth: 500}}>
+      <div className="gh-header">
+        <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+          <span style={{fontSize: 14, fontWeight: 600}}>GitHub Discovery</span>
+          {searched && <span className="badge badge-blue">{leads.length} found</span>}
+        </div>
+        <div style={{display: 'flex', gap: 4}}>
+          <button className={`btn btn-sm ${tab === 'results' ? '' : 'btn-ghost'}`} onClick={() => setTab('results')}>Results</button>
+          <button className={`btn btn-sm ${tab === 'shortlist' ? '' : 'btn-ghost'}`} onClick={() => setTab('shortlist')}>
+            Shortlist{shortlist.length > 0 ? ` (${shortlist.length})` : ''}
+          </button>
+          {onClose && <button className="btn btn-sm btn-ghost" onClick={onClose} title="Close">&times;</button>}
+        </div>
+      </div>
+
+      {/* Search bar showing current criteria */}
+      {criteria && (
+        <div className="gh-search-bar">
+          {criteria.skills?.map(s => <span key={s} className="gh-tag matched">{s}</span>)}
+          {criteria.languages?.map(l => <span key={l} className="gh-tag">{l}</span>)}
+          {criteria.location && <span className="gh-tag">{criteria.location}</span>}
+        </div>
+      )}
+
+      {/* Loading */}
+      {searchLoading && (
+        <div className="gh-empty">
+          <div style={{marginBottom: 8}}>Searching GitHub for talent...</div>
+          <div style={{display: 'flex', justifyContent: 'center', gap: 4}}>
+            <span className="typing-dot"></span><span className="typing-dot"></span><span className="typing-dot"></span>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {searchError && (
+        <div className="gh-empty" style={{color: 'var(--red)'}}>
+          {searchError.includes('rate limit') ? 'GitHub rate limit reached. Please try again in a few minutes.' : `Search error: ${searchError}`}
+        </div>
+      )}
+
+      {/* Results tab */}
+      {!searchLoading && !searchError && tab === 'results' && (
+        <>
+          {leads.length === 0 && searched && (
+            <div className="gh-empty">No matching profiles found. Try broader criteria.</div>
+          )}
+          {leads.map(lead => (
+            <ExternalTalentCard
+              key={lead.id}
+              lead={lead}
+              onShortlist={handleShortlist}
+              onInvite={handleInvite}
+              isShortlisted={isShortlisted(lead.githubLogin)}
+            />
+          ))}
+        </>
+      )}
+
+      {/* Shortlist tab */}
+      {tab === 'shortlist' && (
+        <>
+          {shortlist.length === 0 && (
+            <div className="gh-empty">No one shortlisted yet. Browse results and shortlist candidates to compare.</div>
+          )}
+          {shortlist.map(lead => (
+            <ExternalTalentCard
+              key={lead.id}
+              lead={lead}
+              onShortlist={handleShortlist}
+              onInvite={handleInvite}
+              isShortlisted={true}
+            />
+          ))}
+        </>
+      )}
+
+      {/* Invite draft modal */}
+      {inviteModal && (
+        <div style={{padding: 16, borderTop: '1px solid var(--border)', background: 'var(--accent-bg)'}}>
+          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
+            <span style={{fontWeight: 600, fontSize: 13}}>Invite draft for @{inviteModal.lead.githubLogin}</span>
+            <button className="btn btn-sm btn-ghost" onClick={() => setInviteModal(null)}>&times;</button>
+          </div>
+          <textarea
+            className="input"
+            rows={8}
+            defaultValue={inviteModal.inviteMessage}
+            style={{fontSize: 12, lineHeight: 1.5}}
+          />
+          <div style={{marginTop: 8, display: 'flex', gap: 8, alignItems: 'center'}}>
+            <button className="btn btn-sm btn-primary" onClick={() => {
+              navigator.clipboard.writeText(inviteModal.inviteMessage);
+              setInviteModal(null);
+            }}>Copy to clipboard</button>
+            <span style={{fontSize: 11, color: 'var(--text-3)'}}>Review and personalise before sending</span>
+          </div>
+        </div>
+      )}
+
+      {/* Compliance footer */}
+      <div style={{padding: '8px 16px', borderTop: '1px solid var(--border-light)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.4}}>
+        External profiles from public GitHub data only. No contact info is shared until the candidate creates a Worksome profile.
       </div>
     </div>
   );

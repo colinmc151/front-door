@@ -3,6 +3,8 @@ const express = require("express");
 const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
 const worksome = require("./worksome-client");
+const github = require("./github-client");
+const { buildExternalTalentLead } = require("./github-scoring");
 
 const app = express();
 app.use(express.json({ limit: "50kb" }));
@@ -150,7 +152,13 @@ Then ask: "Would you like to hire one of these people?"
 - Pick someone → Ask Q1d. Then output JSON. Done.
 - None fit → "No problem — let me set up the role so we can find someone new." → Go to B2 Q3 onward (skip Q2, we already have the project description and skills).
 
-**If no workers found:** "I didn't find anyone with those skills in your talent pool yet. Let me set up the role." → Go to B2 Q3 onward.
+**If no workers found:** The system will automatically search GitHub for external technical profiles with matching public work. Tell the manager: "I didn't find anyone with those skills in your talent pool yet, but I've found some external GitHub profiles with relevant experience. You can review them in the panel below — shortlist anyone who looks promising and draft an invite to bring them onto Worksome." Then continue to B2 Q3 onward to set up the role.
+
+IMPORTANT language rules for GitHub discovery:
+- Never say someone is "available for hire" or "looking for work" — we only see public technical signals.
+- Use: "external GitHub profile," "public technical work," "invite to Worksome."
+- Never share contact info. The candidate must create a Worksome profile first.
+- This is discovery from public data, not a talent marketplace.
 
 ### B2: Full discovery
 Ask these in order, ONE AT A TIME. Skip any already answered:
@@ -314,16 +322,125 @@ app.post("/api/handoff/worksome", async (req, res) => {
   }
 });
 
+// ─── GitHub Talent Discovery ─────────────────────────
+
+// In-memory shortlist store (per-session, not persisted)
+const shortlists = new Map(); // sessionId → ExternalTalentLead[]
+
+app.get("/api/github/search", async (req, res) => {
+  try {
+    const { skills, languages, keywords, location, maxResults } = req.query;
+
+    const criteria = {
+      skills: skills ? skills.split(",").map(s => s.trim()).filter(Boolean) : [],
+      languages: languages ? languages.split(",").map(s => s.trim()).filter(Boolean) : [],
+      keywords: keywords ? keywords.split(",").map(s => s.trim()).filter(Boolean) : [],
+      location: location || null,
+      maxResults: Math.min(parseInt(maxResults) || 10, 20),
+    };
+
+    if (criteria.skills.length === 0 && criteria.languages.length === 0 && criteria.keywords.length === 0) {
+      return res.status(400).json({ error: "At least one of skills, languages, or keywords is required" });
+    }
+
+    const profiles = await github.discoverTalent(criteria);
+    const leads = profiles.map(p => buildExternalTalentLead(p, criteria));
+
+    // Sort by fit score descending
+    leads.sort((a, b) => b.fitScore - a.fitScore);
+
+    res.json({ leads, criteria, count: leads.length });
+  } catch (err) {
+    console.error("[GitHub] Search error:", err.message);
+    const isRateLimit = err.message.includes("rate limit");
+    res.status(isRateLimit ? 429 : 500).json({ error: err.message, leads: [] });
+  }
+});
+
+app.get("/api/github/shortlist", (req, res) => {
+  const sessionId = req.query.sessionId || "default";
+  const list = shortlists.get(sessionId) || [];
+  res.json({ shortlist: list, count: list.length });
+});
+
+app.post("/api/github/shortlist", (req, res) => {
+  const { sessionId = "default", lead } = req.body;
+  if (!lead || !lead.githubLogin) {
+    return res.status(400).json({ error: "Missing lead data" });
+  }
+
+  if (!shortlists.has(sessionId)) shortlists.set(sessionId, []);
+  const list = shortlists.get(sessionId);
+
+  // Check for duplicates
+  if (list.some(l => l.githubLogin === lead.githubLogin)) {
+    return res.json({ status: "already_shortlisted", shortlist: list });
+  }
+
+  lead.updatedAt = new Date().toISOString();
+  list.push(lead);
+  res.json({ status: "shortlisted", shortlist: list });
+});
+
+app.post("/api/github/invite", (req, res) => {
+  const { sessionId = "default", githubLogin, roleTitle, skills, clientName, senderName } = req.body;
+
+  if (!githubLogin) {
+    return res.status(400).json({ error: "Missing githubLogin" });
+  }
+
+  // Find in shortlist
+  const list = shortlists.get(sessionId) || [];
+  const lead = list.find(l => l.githubLogin === githubLogin);
+
+  if (!lead) {
+    return res.status(404).json({ error: "Lead not found in shortlist. Shortlist first." });
+  }
+
+  // Generate invite message from template
+  const firstName = lead.displayName ? lead.displayName.split(" ")[0] : lead.githubLogin;
+  const matchedSkills = (skills || lead.inferredSkills || lead.topLanguages || []).slice(0, 4).join(", ");
+  const inviteLink = `${process.env.WORKSOME_URL || "https://sandbox.worksome.com"}/invite/gh/${lead.githubLogin}`;
+
+  const inviteMessage = `Hi ${firstName},
+
+I came across your public GitHub work and thought your experience with ${matchedSkills} could be relevant for a freelance opportunity with ${clientName || "our team"}.
+
+The role is for ${roleTitle || "a technical project"} and would be managed through Worksome for contracting, compliance, and payment.
+
+If you are open to hearing more, you can review the opportunity and create a Worksome profile here:
+${inviteLink}
+
+Best,
+${senderName || "The hiring team"}`;
+
+  // Update lead status
+  lead.inviteStatus = "draft";
+  lead.consentStatus = "not_contacted";
+  lead.updatedAt = new Date().toISOString();
+
+  res.json({
+    status: "draft_created",
+    inviteMessage,
+    inviteLink,
+    lead,
+  });
+});
+
 // ─── Health check ─────────────────────────────────────
 app.get("/api/health", async (req, res) => {
-  const wsHealth = process.env.WORKSOME_API_TOKEN
-    ? await worksome.healthCheck()
-    : { ok: false, error: "No token configured" };
+  const [wsHealth, ghHealth] = await Promise.all([
+    process.env.WORKSOME_API_TOKEN
+      ? worksome.healthCheck()
+      : Promise.resolve({ ok: false, error: "No token configured" }),
+    github.healthCheck(),
+  ]);
 
   res.json({
     status: "ok",
     time: new Date().toISOString(),
     worksome: wsHealth,
+    github: ghHealth,
   });
 });
 
