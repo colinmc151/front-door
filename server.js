@@ -516,7 +516,7 @@ app.get("/api/worksome/debug-notes", async (req, res) => {
             notes { data { id } }
             worker {
               id name firstName lastName email jobTitle avatar
-              address { city country { name code } }
+              address { city country { name } }
               skills { name }
               dayRate currency isCurrentlyHired${acctArg} totalPaid${acctArg}
               hires { data { id } }
