@@ -193,6 +193,8 @@ function mapTrustedContact(tc, richProfile = false) {
     totalPaid: w.totalPaid || 0,
     notesCount: (tc.notes?.data || []).length,
     hiresCount: (w.hires?.data || []).length,
+    _debug_notes_raw: tc.notes,
+    _debug_hires_raw: w.hires,
     source: 'worksome',
     richProfile,
   };
@@ -222,7 +224,7 @@ async function searchWorkersBySkills(skillNames) {
           id
           skills { id name }
           customFieldValues { customField { name } value }
-          notes { data { id } }
+          notes(first: 50) { data { id } }
           worker {
             id
             name
@@ -237,7 +239,7 @@ async function searchWorkersBySkills(skillNames) {
             currency
             isCurrentlyHired
             totalPaid
-            hires { data { id } }
+            hires(first: 50) { data { id } }
           }
         }
       }
@@ -295,13 +297,13 @@ async function searchWorkersBySkills(skillNames) {
                 id
                 skills { id name }
                 customFieldValues { customField { name } value }
-                notes { data { id } }
+                notes(first: 50) { data { id } }
                 worker {
                   id name firstName lastName email jobTitle avatar
                   address { city country }
                   skills { name }
                   dayRate currency isCurrentlyHired totalPaid
-                  hires { data { id } }
+                  hires(first: 50) { data { id } }
                 }
               }
             }
