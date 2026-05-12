@@ -139,6 +139,7 @@
   .ws-score.low { background: #fee2e2; color: #991b1b; }
   .ws-tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 4px; margin: 2px 3px 2px 0; background: #f1f5f9; color: var(--text-2); }
   .ws-tag.matched { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  .ws-tag.company { background: #ede9fe; color: #6d28d9; font-weight: 600; border: 1px solid #c4b5fd; }
   .ws-breakdown-bar { height: 4px; border-radius: 2px; background: #e5e7eb; overflow: hidden; flex: 1; }
   .ws-breakdown-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
   .ws-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
@@ -1400,9 +1401,11 @@ function WorksomeTalentCard({ worker, onHire }) {
       {/* Skills */}
       {worker.skills && worker.skills.length > 0 && (
         <div style={{marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 0}}>
-          {worker.skills.map(s => (
-            <span key={s} className={`ws-tag ${matchedSkills.some(m => m.toLowerCase() === s.toLowerCase()) ? 'matched' : ''}`}>{s}</span>
-          ))}
+          {worker.skills.map(s => {
+            const isCompany = (worker.companySkills || []).some(cs => cs.toLowerCase() === s.toLowerCase());
+            const isMatched = matchedSkills.some(m => m.toLowerCase() === s.toLowerCase());
+            return <span key={s} className={`ws-tag ${isCompany ? 'company' : isMatched ? 'matched' : ''}`} title={isCompany ? 'Added by your company' : ''}>{s}</span>;
+          })}
         </div>
       )}
 

@@ -110,6 +110,9 @@ function scoreProfileCompleteness(worker) {
   if (worker.location) { score += 10; reasons.push(worker.location); }
   if ((worker.skills || []).length >= 3) score += 10;
   if (worker.dayRate) score += 10;
+  // Bonus for company-enriched data
+  if ((worker.companySkills || []).length > 0) { score += 5; reasons.push('company verified'); }
+  if (worker.customFields) score += 5;
 
   return { score: Math.min(100, score), reasons };
 }

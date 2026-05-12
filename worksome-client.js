@@ -154,6 +154,48 @@ async function resolveSkillIds(skillNames) {
   return ids;
 }
 
+// ─── Map a TrustedContact GraphQL result to a flat worker object ──
+function mapTrustedContact(tc, richProfile = false) {
+  const w = tc.worker || {};
+
+  // Merge worker skills + TC-level (company-added) skills, deduplicated
+  const workerSkills = (w.skills || []).map(s => s.name);
+  const companySkills = (tc.skills || []).map(s => s.name);
+  const allSkills = [...new Set([...workerSkills, ...companySkills])];
+
+  // Extract custom field values (e.g. Title, Rate overrides)
+  const customFields = {};
+  for (const cf of (tc.customFieldValues || [])) {
+    if (cf.customField?.name && cf.value) {
+      customFields[cf.customField.name] = cf.value;
+    }
+  }
+
+  // Use custom field "Title" as fallback for jobTitle
+  const title = w.jobTitle || customFields['Title'] || customFields['title'] || null;
+
+  return {
+    id: w.id || tc.id,
+    name: w.name || null,
+    firstName: w.firstName || null,
+    lastName: w.lastName || null,
+    email: w.email || null,
+    title,
+    avatar: w.avatar || null,
+    bio: customFields['Bio'] || customFields['bio'] || customFields['About'] || null,
+    location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
+    skills: allSkills,
+    companySkills,
+    customFields: Object.keys(customFields).length > 0 ? customFields : null,
+    dayRate: w.dayRate || null,
+    currency: w.currency || null,
+    isCurrentlyHired: w.isCurrentlyHired || false,
+    totalPaid: w.totalPaid || 0,
+    source: 'worksome',
+    richProfile,
+  };
+}
+
 // ─── Search talent pool by skills (rich profiles) ─────────────
 async function searchWorkersBySkills(skillNames) {
   const accountId = await getAccountId();
@@ -170,12 +212,14 @@ async function searchWorkersBySkills(skillNames) {
   // Step 2: Query trusted contacts with rich profile fields
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
 
-  // Rich query — includes avatar, location, rate, hire status
+  // Rich query — includes avatar, location, rate, hire status + TC-level skills & custom fields
   const richQuery = `
     query SearchBySkills($skills: [ID!]) {
       trustedContacts(skills: $skills${accountFilter}, first: 10) {
         data {
           id
+          skills { id name }
+          customFieldValues { customField { name } value }
           worker {
             id
             name
@@ -186,7 +230,6 @@ async function searchWorkersBySkills(skillNames) {
             avatar
             address { city country }
             skills { name }
-            profile { bio }
             dayRate
             currency
             isCurrentlyHired
@@ -203,6 +246,7 @@ async function searchWorkersBySkills(skillNames) {
       trustedContacts(skills: $skills${accountFilter}, first: 10) {
         data {
           id
+          skills { id name }
           worker {
             id
             name
@@ -232,27 +276,7 @@ async function searchWorkersBySkills(skillNames) {
 
     const raw = data.trustedContacts?.data || [];
 
-    const contacts = raw.map(tc => {
-      const w = tc.worker || {};
-      return {
-        id: w.id || tc.id,
-        name: w.name || null,
-        firstName: w.firstName || null,
-        lastName: w.lastName || null,
-        email: w.email || null,
-        title: w.jobTitle || null,
-        avatar: w.avatar || null,
-        bio: w.profile?.bio || null,
-        location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
-        skills: (w.skills || []).map(s => s.name),
-        dayRate: w.dayRate || null,
-        currency: w.currency || null,
-        isCurrentlyHired: w.isCurrentlyHired || false,
-        totalPaid: w.totalPaid || 0,
-        source: 'worksome',
-        richProfile: usedRichQuery,
-      };
-    });
+    const contacts = raw.map(tc => mapTrustedContact(tc, usedRichQuery));
 
     console.log(`[Worksome] Skill search returned ${contacts.length} result(s) (rich: ${usedRichQuery}):`, contacts.map(c => c.name));
 
@@ -265,11 +289,12 @@ async function searchWorkersBySkills(skillNames) {
             trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 10) {
               data {
                 id
+                skills { id name }
+                customFieldValues { customField { name } value }
                 worker {
                   id name firstName lastName email jobTitle avatar
                   address { city country }
                   skills { name }
-                  profile { bio }
                   dayRate currency isCurrentlyHired totalPaid
                 }
               }
@@ -286,6 +311,7 @@ async function searchWorkersBySkills(skillNames) {
               trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 10) {
                 data {
                   id
+                  skills { id name }
                   worker { id name firstName lastName email jobTitle skills { name } }
                 }
               }
@@ -294,27 +320,7 @@ async function searchWorkersBySkills(skillNames) {
           allData = await graphql(allBasicQuery);
         }
         const allRaw = allData.trustedContacts?.data || [];
-        const allContacts = allRaw.map(tc => {
-          const w = tc.worker || {};
-          return {
-            id: w.id || tc.id,
-            name: w.name || null,
-            firstName: w.firstName || null,
-            lastName: w.lastName || null,
-            email: w.email || null,
-            title: w.jobTitle || null,
-            avatar: w.avatar || null,
-            bio: w.profile?.bio || null,
-            location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
-            skills: (w.skills || []).map(s => s.name),
-            dayRate: w.dayRate || null,
-            currency: w.currency || null,
-            isCurrentlyHired: w.isCurrentlyHired || false,
-            totalPaid: w.totalPaid || 0,
-            source: 'worksome',
-            richProfile: true,
-          };
-        });
+        const allContacts = allRaw.map(tc => mapTrustedContact(tc, true));
         console.log(`[Worksome] Full pool returned ${allContacts.length} contact(s):`, allContacts.map(c => c.name));
         if (allContacts.length > 0) {
           return { workers: allContacts, resolvedSkills: resolved, broadSearch: true };
