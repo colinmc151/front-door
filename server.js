@@ -497,54 +497,63 @@ app.get("/api/worksome/debug-notes", async (req, res) => {
       noteType = { error: e.message };
     }
 
-    // Step 4: Test the exact rich query used in searchWorkersBySkills
+    // Step 4: Get accountId for field-level args
+    let accountId;
+    try {
+      const acctData = await worksome.graphqlRaw(`{ accounts { id name } }`);
+      accountId = acctData.accounts?.[0]?.id;
+    } catch(e) { accountId = null; }
+    const acctArg = accountId ? `(account: "${accountId}")` : '';
+
+    // Step 5: Test the FIXED rich query (matches searchWorkersBySkills)
     let richQueryResult;
     try {
-      richQueryResult = await worksome.graphqlRaw(`{
-        trustedContacts(first: 2) {
+      const q = `{
+        trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 2) {
           data {
             id
             skills { id name }
-            customFieldValues { customField { name } value }
             notes { data { id } }
             worker {
               id name firstName lastName email jobTitle avatar
-              address { city country }
+              address { city country { name code } }
               skills { name }
-              dayRate currency isCurrentlyHired totalPaid
+              dayRate currency isCurrentlyHired${acctArg} totalPaid${acctArg}
               hires { data { id } }
             }
           }
         }
-      }`);
-      richQueryResult = { ok: true, count: richQueryResult.trustedContacts?.data?.length, sample: richQueryResult.trustedContacts?.data?.[0] };
+      }`;
+      richQueryResult = await worksome.graphqlRaw(q);
+      const first = richQueryResult.trustedContacts?.data?.[0];
+      richQueryResult = {
+        ok: true,
+        count: richQueryResult.trustedContacts?.data?.length,
+        query_used: q.substring(0, 100) + '...',
+        sample: first ? {
+          id: first.id,
+          notes: first.notes,
+          worker_name: first.worker?.name,
+          avatar: first.worker?.avatar ? 'present' : 'none',
+          dayRate: first.worker?.dayRate,
+          currency: first.worker?.currency,
+          location: first.worker?.address,
+          isCurrentlyHired: first.worker?.isCurrentlyHired,
+          totalPaid: first.worker?.totalPaid,
+          hires: first.worker?.hires,
+        } : null,
+      };
     } catch(e) {
       richQueryResult = { ok: false, error: e.message };
     }
 
-    // Step 5: Test hires separately
-    let hiresTest;
-    try {
-      hiresTest = await worksome.graphqlRaw(`{
-        trustedContacts(first: 1) {
-          data {
-            id
-            worker { id name hires { data { id } } }
-          }
-        }
-      }`);
-      hiresTest = { ok: true, data: hiresTest.trustedContacts?.data?.[0] };
-    } catch(e) {
-      hiresTest = { ok: false, error: e.message };
-    }
-
     res.json({
+      accountId,
       allTcFields: tcFields.map(f => f.name),
       noteRelatedFields: noteRelated,
       sampleTcWithNotes: tcResult,
       noteType: noteType?.__type?.fields?.map(f => f.name) || noteType,
       richQueryTest: richQueryResult,
-      hiresTest,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
