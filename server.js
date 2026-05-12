@@ -445,6 +445,69 @@ app.get("/api/worksome/introspect", async (req, res) => {
   }
 });
 
+// ─── Debug notes on TrustedContact (temporary) ──────────
+app.get("/api/worksome/debug-notes", async (req, res) => {
+  try {
+    // Step 1: introspect TrustedContact fields to find notes-related ones
+    const introspectQuery = `{
+      __type(name: "TrustedContact") {
+        fields {
+          name
+          type { name kind ofType { name kind ofType { name } } }
+        }
+      }
+    }`;
+    const introData = await worksome.graphqlRaw(introspectQuery);
+    const tcFields = introData.__type?.fields || [];
+    const noteRelated = tcFields.filter(f =>
+      f.name.toLowerCase().includes('note') ||
+      f.name.toLowerCase().includes('comment') ||
+      f.name.toLowerCase().includes('remark')
+    );
+
+    // Step 2: get first trusted contact with notes field
+    const tcQuery = `{
+      trustedContacts(first: 1) {
+        data {
+          id
+          notes { data { id } }
+        }
+      }
+    }`;
+    let tcResult;
+    try {
+      tcResult = await worksome.graphqlRaw(tcQuery);
+    } catch(e) {
+      tcResult = { error: e.message };
+    }
+
+    // Step 3: check if Note type exists and what fields it has
+    const noteTypeQuery = `{
+      __type(name: "Note") {
+        fields {
+          name
+          type { name kind ofType { name kind ofType { name } } }
+        }
+      }
+    }`;
+    let noteType;
+    try {
+      noteType = await worksome.graphqlRaw(noteTypeQuery);
+    } catch(e) {
+      noteType = { error: e.message };
+    }
+
+    res.json({
+      allTcFields: tcFields.map(f => f.name),
+      noteRelatedFields: noteRelated,
+      sampleTcWithNotes: tcResult,
+      noteType: noteType?.__type?.fields?.map(f => f.name) || noteType,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Health check ─────────────────────────────────────
 app.get("/api/health", async (req, res) => {
   const [wsHealth, ghHealth] = await Promise.all([

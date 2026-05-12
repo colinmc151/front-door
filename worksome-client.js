@@ -224,7 +224,7 @@ async function searchWorkersBySkills(skillNames) {
           id
           skills { id name }
           customFieldValues { customField { name } value }
-          notes(first: 50) { data { id } }
+          notes { data { id } }
           worker {
             id
             name
@@ -239,7 +239,7 @@ async function searchWorkersBySkills(skillNames) {
             currency
             isCurrentlyHired
             totalPaid
-            hires(first: 50) { data { id } }
+            hires { data { id } }
           }
         }
       }
@@ -297,13 +297,13 @@ async function searchWorkersBySkills(skillNames) {
                 id
                 skills { id name }
                 customFieldValues { customField { name } value }
-                notes(first: 50) { data { id } }
+                notes { data { id } }
                 worker {
                   id name firstName lastName email jobTitle avatar
                   address { city country }
                   skills { name }
                   dayRate currency isCurrentlyHired totalPaid
-                  hires(first: 50) { data { id } }
+                  hires { data { id } }
                 }
               }
             }
@@ -531,4 +531,4 @@ async function healthCheck() {
   }
 }
 
-module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills, introspectWorkerFields };
+module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills, introspectWorkerFields, graphqlRaw: graphql };
