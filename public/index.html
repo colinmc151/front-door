@@ -122,6 +122,29 @@
   .gh-search-bar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-light); flex-wrap: wrap; }
   .gh-empty { padding: 32px 16px; text-align: center; color: var(--text-3); font-size: 13px; }
 
+  /* Worksome Talent Cards */
+  .ws-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; flex-shrink: 0; }
+  .ws-header { padding: 14px 16px; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; }
+  .ws-card { padding: 14px 16px; border-bottom: 1px solid var(--border-light); transition: background 0.15s; }
+  .ws-card:hover { background: #fafbfc; }
+  .ws-card:last-child { border-bottom: none; }
+  .ws-badge { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: var(--accent); color: white; letter-spacing: 0.3px; }
+  .ws-rate { font-size: 11px; color: var(--text-2); font-weight: 500; }
+  .ws-status { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+  .ws-status.available { background: #dcfce7; color: #15803d; }
+  .ws-status.hired { background: #fef3c7; color: #92400e; }
+  .ws-score { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .ws-score.high { background: #dcfce7; color: #15803d; }
+  .ws-score.medium { background: #fef3c7; color: #92400e; }
+  .ws-score.low { background: #fee2e2; color: #991b1b; }
+  .ws-tag { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 4px; margin: 2px 3px 2px 0; background: #f1f5f9; color: var(--text-2); }
+  .ws-tag.matched { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  .ws-breakdown-bar { height: 4px; border-radius: 2px; background: #e5e7eb; overflow: hidden; flex: 1; }
+  .ws-breakdown-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+  .ws-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .ws-avatar { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; object-fit: cover; background: #e5e7eb; }
+  .ws-avatar-placeholder { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; background: var(--accent-bg); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; color: var(--accent); }
+
   /* ═══ MOBILE ═══ */
   @media (max-width: 768px) {
     .left-panel { display: none !important; }
@@ -892,6 +915,18 @@ function ChatPage({ config, setPage, page }) {
                   </div>
                 )}
 
+                {/* Worksome Talent Pool panel — inline after messages */}
+                {foundWorkers.length > 0 && !routeResult && (
+                  <WorksomeTalentPanel
+                    workers={foundWorkers}
+                    onHire={(worker) => {
+                      // Simulate the user selecting this worker
+                      handleSend(`I'd like to hire ${worker.name}`);
+                    }}
+                    onClose={() => setFoundWorkers([])}
+                  />
+                )}
+
                 {/* GitHub Discovery panel — inline after messages */}
                 {ghDiscovery && (
                   <GitHubDiscoveryPanel
@@ -1306,6 +1341,138 @@ function GitHubDiscoveryPanel({ criteria, sessionId, config, onClose }) {
       {/* Compliance footer */}
       <div style={{padding: '8px 16px', borderTop: '1px solid var(--border-light)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.4}}>
         External profiles from public GitHub data only. No contact info is shared until the candidate creates a Worksome profile.
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════
+// WORKSOME TALENT CARDS
+// ══════════════════════════════════════
+
+function WorksomeTalentCard({ worker, onHire }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const scoreClass = worker.fitScore >= 65 ? 'high' : worker.fitScore >= 40 ? 'medium' : 'low';
+  const initials = (worker.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const matchedSkills = worker.fitBreakdown?.skillMatch?.reasons || [];
+
+  return (
+    <div className="ws-card">
+      <div style={{display: 'flex', gap: 12, alignItems: 'flex-start'}}>
+        {worker.avatar ? (
+          <img src={worker.avatar} alt="" className="ws-avatar" />
+        ) : (
+          <div className="ws-avatar-placeholder">{initials}</div>
+        )}
+        <div style={{flex: 1, minWidth: 0}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap'}}>
+            <span style={{fontWeight: 600, fontSize: 14}}>{worker.name || 'Unknown'}</span>
+            {worker.isCurrentlyHired ? (
+              <span className="ws-status hired">On a hire</span>
+            ) : worker.totalPaid > 0 ? (
+              <span className="ws-status available">Available</span>
+            ) : null}
+          </div>
+          {worker.title && (
+            <div style={{fontSize: 12, color: 'var(--text-2)', marginTop: 2}}>{worker.title}</div>
+          )}
+          <div style={{fontSize: 11, color: 'var(--text-3)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap'}}>
+            {worker.location && <span>{worker.location}</span>}
+            {worker.dayRate && (
+              <span className="ws-rate">{worker.currency || ''} {worker.dayRate}/day</span>
+            )}
+            {worker.totalPaid > 0 && (
+              <span>Previously engaged</span>
+            )}
+          </div>
+          {worker.bio && (
+            <div style={{fontSize: 12, color: 'var(--text-2)', marginTop: 4, lineHeight: 1.4}}>
+              {worker.bio.slice(0, 140)}{worker.bio.length > 140 ? '...' : ''}
+            </div>
+          )}
+        </div>
+
+        <div className={`ws-score ${scoreClass}`} title={`Fit: ${worker.fitScore}/100`}>
+          {worker.fitScore}
+        </div>
+      </div>
+
+      {/* Skills */}
+      {worker.skills && worker.skills.length > 0 && (
+        <div style={{marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 0}}>
+          {worker.skills.map(s => (
+            <span key={s} className={`ws-tag ${matchedSkills.some(m => m.toLowerCase() === s.toLowerCase()) ? 'matched' : ''}`}>{s}</span>
+          ))}
+        </div>
+      )}
+
+      {/* Fit explanation */}
+      <div style={{marginTop: 6, fontSize: 11, color: 'var(--text-3)'}}>
+        {worker.fitExplanation}
+      </div>
+
+      {/* Expanded breakdown */}
+      {expanded && worker.fitBreakdown && (
+        <div style={{marginTop: 8, padding: '8px 10px', background: 'var(--bg)', borderRadius: 'var(--radius)', fontSize: 11}}>
+          {Object.entries(worker.fitBreakdown).map(([key, val]) => (
+            <div key={key} style={{display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4}}>
+              <span style={{width: 110, color: 'var(--text-3)', flexShrink: 0}}>{key.replace(/([A-Z])/g, ' $1').trim()}</span>
+              <div className="ws-breakdown-bar">
+                <div className="ws-breakdown-fill" style={{
+                  width: `${val.score}%`,
+                  background: val.score >= 65 ? '#22c55e' : val.score >= 40 ? '#f59e0b' : '#ef4444'
+                }} />
+              </div>
+              <span style={{fontWeight: 600, color: 'var(--text-2)', width: 30, textAlign: 'right'}}>{val.weighted}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="ws-actions">
+        <button className="btn btn-sm btn-primary" onClick={() => onHire && onHire(worker)}>
+          Hire
+        </button>
+        <button className="btn btn-sm btn-ghost" onClick={() => setExpanded(!expanded)} style={{marginLeft: 'auto'}}>
+          {expanded ? 'Less' : 'Score details'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WorksomeTalentPanel({ workers, onHire, onClose }) {
+  const panelRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (panelRef.current) {
+      panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  if (!workers || workers.length === 0) return null;
+
+  const topScore = workers[0]?.fitScore || 0;
+
+  return (
+    <div className="ws-panel" ref={panelRef}>
+      <div className="ws-header">
+        <div style={{display: 'flex', alignItems: 'center', gap: 8}}>
+          <span style={{fontWeight: 700, fontSize: 14}}>Talent Pool Matches</span>
+          <span className="ws-badge">{workers.length} found</span>
+        </div>
+        {onClose && (
+          <button className="btn btn-sm btn-ghost" onClick={onClose} style={{padding: '2px 6px'}}>&times;</button>
+        )}
+      </div>
+
+      {workers.map(w => (
+        <WorksomeTalentCard key={w.id} worker={w} onHire={onHire} />
+      ))}
+
+      <div style={{padding: '8px 16px', borderTop: '1px solid var(--border-light)', fontSize: 10, color: 'var(--text-3)', lineHeight: 1.4}}>
+        Scored from your Worksome talent pool. Fit scores are based on skills, title, engagement history, availability, and profile completeness.
       </div>
     </div>
   );

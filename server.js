@@ -5,6 +5,7 @@ const Anthropic = require("@anthropic-ai/sdk");
 const worksome = require("./worksome-client");
 const github = require("./github-client");
 const { buildExternalTalentLead } = require("./github-scoring");
+const { scoreWorker } = require("./worksome-scoring");
 
 const app = express();
 app.use(express.json({ limit: "50kb" }));
@@ -280,7 +281,14 @@ app.get("/api/search-skills", async (req, res) => {
     // Accept comma-separated skill names
     const skillNames = skills.split(",").map(s => s.trim()).filter(Boolean);
     const result = await worksome.searchWorkersBySkills(skillNames);
-    res.json({ ...result, query: skills });
+
+    // Score each worker against the search criteria
+    const criteria = { skills: skillNames, keywords: skillNames };
+    const scoredWorkers = (result.workers || [])
+      .map(w => scoreWorker(w, criteria))
+      .sort((a, b) => b.fitScore - a.fitScore);
+
+    res.json({ ...result, workers: scoredWorkers, query: skills });
   } catch (err) {
     console.error("[Worksome] Skill search error:", err.message);
     res.json({ workers: [], resolvedSkills: [], query: req.query.skills, error: err.message });

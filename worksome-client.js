@@ -170,7 +170,7 @@ async function searchWorkersBySkills(skillNames) {
   // Step 2: Query trusted contacts with rich profile fields
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
 
-  // Rich query — includes avatar, bio, location, rate, availability, past jobs
+  // Rich query — includes avatar, location, rate, hire status
   const richQuery = `
     query SearchBySkills($skills: [ID!]) {
       trustedContacts(skills: $skills${accountFilter}, first: 10) {
@@ -184,14 +184,13 @@ async function searchWorkersBySkills(skillNames) {
             email
             jobTitle
             avatar
-            bio
             address { city country }
             skills { name }
-            languages { name }
-            hourlyRate { amount currency }
-            isAvailable
-            completedJobsCount
-            averageRating
+            profile { bio }
+            dayRate
+            currency
+            isCurrentlyHired
+            totalPaid
           }
         }
       }
@@ -243,14 +242,13 @@ async function searchWorkersBySkills(skillNames) {
         email: w.email || null,
         title: w.jobTitle || null,
         avatar: w.avatar || null,
-        bio: w.bio || null,
+        bio: w.profile?.bio || null,
         location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
         skills: (w.skills || []).map(s => s.name),
-        languages: (w.languages || []).map(l => l.name),
-        hourlyRate: w.hourlyRate || null,
-        isAvailable: w.isAvailable != null ? w.isAvailable : null,
-        completedJobsCount: w.completedJobsCount || 0,
-        averageRating: w.averageRating || null,
+        dayRate: w.dayRate || null,
+        currency: w.currency || null,
+        isCurrentlyHired: w.isCurrentlyHired || false,
+        totalPaid: w.totalPaid || 0,
         source: 'worksome',
         richProfile: usedRichQuery,
       };
