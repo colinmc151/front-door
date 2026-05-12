@@ -427,6 +427,16 @@ ${senderName || "The hiring team"}`;
   });
 });
 
+// ─── Worksome introspection (temporary — discover available fields) ──
+app.get("/api/worksome/introspect", async (req, res) => {
+  try {
+    const fields = await worksome.introspectWorkerFields();
+    res.json({ fields });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Health check ─────────────────────────────────────
 app.get("/api/health", async (req, res) => {
   const [wsHealth, ghHealth] = await Promise.all([

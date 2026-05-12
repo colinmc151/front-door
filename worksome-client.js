@@ -154,7 +154,7 @@ async function resolveSkillIds(skillNames) {
   return ids;
 }
 
-// ─── Search talent pool by skills ──────────────────────────
+// ─── Search talent pool by skills (rich profiles) ─────────────
 async function searchWorkersBySkills(skillNames) {
   const accountId = await getAccountId();
 
@@ -167,9 +167,39 @@ async function searchWorkersBySkills(skillNames) {
     return { workers: [], resolvedSkills: resolved };
   }
 
-  // Step 2: Query trusted contacts filtered by skills (include their skills for scoring)
+  // Step 2: Query trusted contacts with rich profile fields
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
-  const query = `
+
+  // Rich query — includes avatar, bio, location, rate, availability, past jobs
+  const richQuery = `
+    query SearchBySkills($skills: [ID!]) {
+      trustedContacts(skills: $skills${accountFilter}, first: 10) {
+        data {
+          id
+          worker {
+            id
+            name
+            firstName
+            lastName
+            email
+            jobTitle
+            avatar
+            bio
+            address { city country }
+            skills { name }
+            languages { name }
+            hourlyRate { amount currency }
+            isAvailable
+            completedJobsCount
+            averageRating
+          }
+        }
+      }
+    }
+  `;
+
+  // Fallback query — basic fields only (in case rich fields aren't supported)
+  const basicQuery = `
     query SearchBySkills($skills: [ID!]) {
       trustedContacts(skills: $skills${accountFilter}, first: 10) {
         data {
@@ -190,22 +220,64 @@ async function searchWorkersBySkills(skillNames) {
 
   try {
     console.log(`[Worksome] Searching talent pool by skills: ${skillIds.join(', ')} (account: ${accountId || 'all'})`);
-    const data = await graphql(query, { skills: skillIds });
+    let data;
+    let usedRichQuery = false;
+
+    try {
+      data = await graphql(richQuery, { skills: skillIds });
+      usedRichQuery = true;
+    } catch (richErr) {
+      console.warn(`[Worksome] Rich query failed, falling back to basic: ${richErr.message}`);
+      data = await graphql(basicQuery, { skills: skillIds });
+    }
+
     const raw = data.trustedContacts?.data || [];
 
-    const contacts = raw.map(tc => ({
-      id: tc.worker?.id || tc.id,
-      name: tc.worker?.name || null,
-      email: tc.worker?.email || null,
-      title: tc.worker?.jobTitle || null,
-      skills: (tc.worker?.skills || []).map(s => s.name),
-    }));
+    const contacts = raw.map(tc => {
+      const w = tc.worker || {};
+      return {
+        id: w.id || tc.id,
+        name: w.name || null,
+        firstName: w.firstName || null,
+        lastName: w.lastName || null,
+        email: w.email || null,
+        title: w.jobTitle || null,
+        avatar: w.avatar || null,
+        bio: w.bio || null,
+        location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
+        skills: (w.skills || []).map(s => s.name),
+        languages: (w.languages || []).map(l => l.name),
+        hourlyRate: w.hourlyRate || null,
+        isAvailable: w.isAvailable != null ? w.isAvailable : null,
+        completedJobsCount: w.completedJobsCount || 0,
+        averageRating: w.averageRating || null,
+        source: 'worksome',
+        richProfile: usedRichQuery,
+      };
+    });
 
-    console.log(`[Worksome] Skill search returned ${contacts.length} result(s):`, contacts.map(c => c.name));
+    console.log(`[Worksome] Skill search returned ${contacts.length} result(s) (rich: ${usedRichQuery}):`, contacts.map(c => c.name));
     return { workers: contacts, resolvedSkills: resolved };
   } catch (err) {
     console.warn(`[Worksome] Skill search failed: ${err.message}`);
     return { workers: [], resolvedSkills: resolved, error: err.message };
+  }
+}
+
+// ─── Introspect Worker type fields ────────────────────────────
+async function introspectWorkerFields() {
+  try {
+    const data = await graphql(`{
+      __type(name: "Worker") {
+        fields { name type { name kind ofType { name } } }
+      }
+    }`);
+    return (data.__type?.fields || []).map(f => ({
+      name: f.name,
+      type: f.type.name || (f.type.ofType?.name ? `${f.type.kind}<${f.type.ofType.name}>` : f.type.kind),
+    }));
+  } catch (err) {
+    return { error: err.message };
   }
 }
 
@@ -369,4 +441,4 @@ async function healthCheck() {
   }
 }
 
-module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills };
+module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills, introspectWorkerFields };
