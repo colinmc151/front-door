@@ -497,11 +497,54 @@ app.get("/api/worksome/debug-notes", async (req, res) => {
       noteType = { error: e.message };
     }
 
+    // Step 4: Test the exact rich query used in searchWorkersBySkills
+    let richQueryResult;
+    try {
+      richQueryResult = await worksome.graphqlRaw(`{
+        trustedContacts(first: 2) {
+          data {
+            id
+            skills { id name }
+            customFieldValues { customField { name } value }
+            notes { data { id } }
+            worker {
+              id name firstName lastName email jobTitle avatar
+              address { city country }
+              skills { name }
+              dayRate currency isCurrentlyHired totalPaid
+              hires { data { id } }
+            }
+          }
+        }
+      }`);
+      richQueryResult = { ok: true, count: richQueryResult.trustedContacts?.data?.length, sample: richQueryResult.trustedContacts?.data?.[0] };
+    } catch(e) {
+      richQueryResult = { ok: false, error: e.message };
+    }
+
+    // Step 5: Test hires separately
+    let hiresTest;
+    try {
+      hiresTest = await worksome.graphqlRaw(`{
+        trustedContacts(first: 1) {
+          data {
+            id
+            worker { id name hires { data { id } } }
+          }
+        }
+      }`);
+      hiresTest = { ok: true, data: hiresTest.trustedContacts?.data?.[0] };
+    } catch(e) {
+      hiresTest = { ok: false, error: e.message };
+    }
+
     res.json({
       allTcFields: tcFields.map(f => f.name),
       noteRelatedFields: noteRelated,
       sampleTcWithNotes: tcResult,
       noteType: noteType?.__type?.fields?.map(f => f.name) || noteType,
+      richQueryTest: richQueryResult,
+      hiresTest,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
