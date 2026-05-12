@@ -183,7 +183,7 @@ function mapTrustedContact(tc, richProfile = false) {
     title,
     avatar: w.avatar || null,
     bio: customFields['Bio'] || customFields['bio'] || customFields['About'] || null,
-    location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
+    location: w.address ? [w.address.city, w.address.country?.name || w.address.country].filter(Boolean).join(', ') : null,
     skills: allSkills,
     companySkills,
     customFields: Object.keys(customFields).length > 0 ? customFields : null,
@@ -216,14 +216,14 @@ async function searchWorkersBySkills(skillNames) {
   // Step 2: Query trusted contacts with rich profile fields
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
 
-  // Rich query — includes avatar, location, rate, hire status + TC-level skills, custom fields, notes & hires
+  // Rich query — includes avatar, location, rate, hire status + TC-level skills, notes & hires
+  const acctArg = accountId ? `(account: "${accountId}")` : '';
   const richQuery = `
     query SearchBySkills($skills: [ID!]) {
       trustedContacts(skills: $skills${accountFilter}, first: 10) {
         data {
           id
           skills { id name }
-          customFieldValues { customField { name } value }
           notes { data { id } }
           worker {
             id
@@ -233,12 +233,12 @@ async function searchWorkersBySkills(skillNames) {
             email
             jobTitle
             avatar
-            address { city country }
+            address { city country { name code } }
             skills { name }
             dayRate
             currency
-            isCurrentlyHired
-            totalPaid
+            isCurrentlyHired${acctArg}
+            totalPaid${acctArg}
             hires { data { id } }
           }
         }
@@ -296,13 +296,12 @@ async function searchWorkersBySkills(skillNames) {
               data {
                 id
                 skills { id name }
-                customFieldValues { customField { name } value }
                 notes { data { id } }
                 worker {
                   id name firstName lastName email jobTitle avatar
-                  address { city country }
+                  address { city country { name code } }
                   skills { name }
-                  dayRate currency isCurrentlyHired totalPaid
+                  dayRate currency isCurrentlyHired${acctArg} totalPaid${acctArg}
                   hires { data { id } }
                 }
               }
