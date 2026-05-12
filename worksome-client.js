@@ -255,6 +255,75 @@ async function searchWorkersBySkills(skillNames) {
     });
 
     console.log(`[Worksome] Skill search returned ${contacts.length} result(s) (rich: ${usedRichQuery}):`, contacts.map(c => c.name));
+
+    // If skill-filtered search returned nothing, try fetching ALL trusted contacts
+    if (contacts.length === 0) {
+      console.log(`[Worksome] No skill-matched contacts — falling back to full talent pool`);
+      try {
+        const allQuery = `
+          query AllContacts {
+            trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 10) {
+              data {
+                id
+                worker {
+                  id name firstName lastName email jobTitle avatar
+                  address { city country }
+                  skills { name }
+                  profile { bio }
+                  dayRate currency isCurrentlyHired totalPaid
+                }
+              }
+            }
+          }
+        `;
+        let allData;
+        try {
+          allData = await graphql(allQuery);
+        } catch (richErr) {
+          // Fallback to basic fields
+          const allBasicQuery = `
+            query AllContacts {
+              trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 10) {
+                data {
+                  id
+                  worker { id name firstName lastName email jobTitle skills { name } }
+                }
+              }
+            }
+          `;
+          allData = await graphql(allBasicQuery);
+        }
+        const allRaw = allData.trustedContacts?.data || [];
+        const allContacts = allRaw.map(tc => {
+          const w = tc.worker || {};
+          return {
+            id: w.id || tc.id,
+            name: w.name || null,
+            firstName: w.firstName || null,
+            lastName: w.lastName || null,
+            email: w.email || null,
+            title: w.jobTitle || null,
+            avatar: w.avatar || null,
+            bio: w.profile?.bio || null,
+            location: w.address ? [w.address.city, w.address.country].filter(Boolean).join(', ') : null,
+            skills: (w.skills || []).map(s => s.name),
+            dayRate: w.dayRate || null,
+            currency: w.currency || null,
+            isCurrentlyHired: w.isCurrentlyHired || false,
+            totalPaid: w.totalPaid || 0,
+            source: 'worksome',
+            richProfile: true,
+          };
+        });
+        console.log(`[Worksome] Full pool returned ${allContacts.length} contact(s):`, allContacts.map(c => c.name));
+        if (allContacts.length > 0) {
+          return { workers: allContacts, resolvedSkills: resolved, broadSearch: true };
+        }
+      } catch (fallbackErr) {
+        console.warn(`[Worksome] Full pool fallback failed: ${fallbackErr.message}`);
+      }
+    }
+
     return { workers: contacts, resolvedSkills: resolved };
   } catch (err) {
     console.warn(`[Worksome] Skill search failed: ${err.message}`);
