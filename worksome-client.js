@@ -191,6 +191,8 @@ function mapTrustedContact(tc, richProfile = false) {
     currency: w.currency || null,
     isCurrentlyHired: w.isCurrentlyHired || false,
     totalPaid: w.totalPaid || 0,
+    notesCount: (tc.notes?.data || []).length,
+    hiresCount: (w.hires?.data || []).length,
     source: 'worksome',
     richProfile,
   };
@@ -212,7 +214,7 @@ async function searchWorkersBySkills(skillNames) {
   // Step 2: Query trusted contacts with rich profile fields
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
 
-  // Rich query — includes avatar, location, rate, hire status + TC-level skills & custom fields
+  // Rich query — includes avatar, location, rate, hire status + TC-level skills, custom fields, notes & hires
   const richQuery = `
     query SearchBySkills($skills: [ID!]) {
       trustedContacts(skills: $skills${accountFilter}, first: 10) {
@@ -220,6 +222,7 @@ async function searchWorkersBySkills(skillNames) {
           id
           skills { id name }
           customFieldValues { customField { name } value }
+          notes { data { id } }
           worker {
             id
             name
@@ -234,6 +237,7 @@ async function searchWorkersBySkills(skillNames) {
             currency
             isCurrentlyHired
             totalPaid
+            hires { data { id } }
           }
         }
       }
@@ -291,11 +295,13 @@ async function searchWorkersBySkills(skillNames) {
                 id
                 skills { id name }
                 customFieldValues { customField { name } value }
+                notes { data { id } }
                 worker {
                   id name firstName lastName email jobTitle avatar
                   address { city country }
                   skills { name }
                   dayRate currency isCurrentlyHired totalPaid
+                  hires { data { id } }
                 }
               }
             }
@@ -341,16 +347,21 @@ async function searchWorkersBySkills(skillNames) {
 async function introspectWorkerFields() {
   try {
     const results = {};
-    for (const typeName of ['Worker', 'TrustedContact', 'Profile']) {
-      const data = await graphql(`{
-        __type(name: "${typeName}") {
-          fields { name type { name kind ofType { name } } }
+    const types = ['Worker', 'TrustedContact', 'Profile', 'Note', 'Hire', 'Contract', 'Engagement', 'Job', 'HireConnection', 'ContractConnection'];
+    for (const typeName of types) {
+      try {
+        const data = await graphql(`{
+          __type(name: "${typeName}") {
+            fields { name type { name kind ofType { name kind ofType { name } } } }
+          }
+        }`);
+        if (data.__type) {
+          results[typeName] = (data.__type.fields || []).map(f => ({
+            name: f.name,
+            type: f.type.name || (f.type.ofType?.name ? `${f.type.kind}<${f.type.ofType.name}>` : f.type.kind),
+          }));
         }
-      }`);
-      results[typeName] = (data.__type?.fields || []).map(f => ({
-        name: f.name,
-        type: f.type.name || (f.type.ofType?.name ? `${f.type.kind}<${f.type.ofType.name}>` : f.type.kind),
-      }));
+      } catch (e) { /* type doesn't exist, skip */ }
     }
     return results;
   } catch (err) {
