@@ -331,18 +331,22 @@ async function searchWorkersBySkills(skillNames) {
   }
 }
 
-// ─── Introspect Worker type fields ────────────────────────────
+// ─── Introspect type fields ────────────────────────────
 async function introspectWorkerFields() {
   try {
-    const data = await graphql(`{
-      __type(name: "Worker") {
-        fields { name type { name kind ofType { name } } }
-      }
-    }`);
-    return (data.__type?.fields || []).map(f => ({
-      name: f.name,
-      type: f.type.name || (f.type.ofType?.name ? `${f.type.kind}<${f.type.ofType.name}>` : f.type.kind),
-    }));
+    const results = {};
+    for (const typeName of ['Worker', 'TrustedContact', 'Profile']) {
+      const data = await graphql(`{
+        __type(name: "${typeName}") {
+          fields { name type { name kind ofType { name } } }
+        }
+      }`);
+      results[typeName] = (data.__type?.fields || []).map(f => ({
+        name: f.name,
+        type: f.type.name || (f.type.ofType?.name ? `${f.type.kind}<${f.type.ofType.name}>` : f.type.kind),
+      }));
+    }
+    return results;
   } catch (err) {
     return { error: err.message };
   }
