@@ -701,13 +701,26 @@ function ChatPage({ config, setPage, page }) {
               .then(r => r.json())
               .then(h => { setHandoffResult(h); setHandoffLoading(false); })
               .catch(() => setHandoffLoading(false));
+
+            // Auto-search talent pool if skills are present and no TALENT_SEARCH marker
+            const hasSearchMarker = reply.match(/\[TALENT_SEARCH:/);
+            if (!hasSearchMarker && parsed.skills && parsed.skills.length > 0) {
+              try {
+                const result = await searchTalentPoolBySkills(parsed.skills.join(', '));
+                const workers = result.workers || [];
+                if (workers.length > 0) {
+                  setFoundWorkers(workers);
+                  console.log('[Front Door] Auto talent search found', workers.length, 'workers');
+                }
+              } catch (e) { console.log('[Front Door] Auto talent search error:', e); }
+            }
           }
         } catch {}
       }
 
       // Check for [TALENT_SEARCH: ...] marker — auto-search talent pool
       const talentSearchMatch = reply.match(/\[TALENT_SEARCH:\s*([^\]]+)\]/);
-      if (talentSearchMatch && !jsonMatch) {
+      if (talentSearchMatch) {
         const skillsText = talentSearchMatch[1].trim();
         const displayReply = reply.replace(/\[TALENT_SEARCH:[^\]]+\]/, '').trim();
 
@@ -917,7 +930,7 @@ function ChatPage({ config, setPage, page }) {
                 )}
 
                 {/* Worksome Talent Pool panel — inline after messages */}
-                {foundWorkers.length > 0 && !routeResult && (
+                {foundWorkers.length > 0 && (
                   <WorksomeTalentPanel
                     workers={foundWorkers}
                     onHire={(worker) => {
