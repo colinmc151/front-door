@@ -5,10 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "build": "node scripts/build-portal.js",
+    "test": "node test-routing.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0",
+    "@google/genai": "^1.0.0",
     "@slack/bolt": "^3.17.0",
     "acorn": "^8.16.0",
     "dotenv": "^16.4.0",
@@ -17,5 +19,10 @@
   },
   "engines": {
     "node": "20.x"
+  },
+  "devDependencies": {
+    "@babel/standalone": "^7.29.7",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   }
 }

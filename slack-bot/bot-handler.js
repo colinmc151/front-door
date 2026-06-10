@@ -1,159 +1,34 @@
 // Slack bot handler — imported by server.js
-// The Slack App and Anthropic client are passed in from the server
+// The Slack App and Gemini client are passed in from the server
 const worksome = require("../worksome-client");
+const configStore = require("../config-store");
+const routing = require("../routing");
+const approval = require("../approval");
+const githubClient = require("../github-client");
+const { buildExternalTalentLead } = require("../github-scoring");
+const { scoreWorker } = require("../worksome-scoring");
 
-const config = {
-  assistant_name: process.env.ASSISTANT_NAME || "Worksome Hiring Hub",
-  vms: { name: process.env.VMS_NAME || "Beeline" },
-  worksome_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
-  worksome_talent_pool_url: process.env.WORKSOME_TALENT_POOL_URL || "https://sandbox.worksome.com/contacts",
-  vms_url: process.env.VMS_URL || "https://beeline.com",
-  weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
-  knockouts: {
-    vms: ["agency", "staffing firm", "temp workers", "temps"],
-    worksome: ["freelancer", "independent consultant", "sow", "statement of work", "fixed bid", "milestone payment"],
-  },
-};
+// Live config: the server-side store is the source of truth (same config
+// the web portal edits); env vars override deployment-specific values.
+function getConfig() {
+  const c = configStore.get();
+  return {
+    assistant_name: process.env.ASSISTANT_NAME || c.assistant_name,
+    vms: { name: process.env.VMS_NAME || c.vms.name },
+    worksome_url: process.env.WORKSOME_URL || c.worksome_url,
+    worksome_talent_pool_url: process.env.WORKSOME_TALENT_POOL_URL || c.worksome_talent_pool_url,
+    vms_url: process.env.VMS_URL || c.vms.url,
+    weights: c.weights,
+    knockouts: c.knockouts,
+  };
+}
 
 function buildSystemPrompt() {
-  const c = config;
-  return `You are ${c.assistant_name}, a hiring assistant that helps managers find the right talent quickly. You make the process simple — the manager describes what they need in plain language, and you handle the rest.
-
-You are warm, professional, and efficient. You never use procurement jargon (no "SOW," "staff augmentation," "IC," or "VMS"). You speak the manager's language.
-
-## Your Job
-Short intake interview → route the request → gather just enough detail. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain routing logic.
-
-## The Conversation
-
-### Q1: "Do you already know who you'd like to work with?"
-- YES → Path A
-- NO → Path B
-
----
-
-## Path A: I have someone in mind
-
-Q1b: "Great — have you worked with this person through us before?"
-- YES → **A1** (search talent pool)
-- NO → **A2** (new worker)
-
-### A1: Existing worker
-Q1c: "What's their name?"
-The system searches the talent pool automatically. You'll get a system message with results.
-
-- **Found:** Show matches (name + title). Ask: "Is this who you're looking for?"
-- **Not found:** "I couldn't find them — let me get them set up instead." → switch to A2.
-- **Confirmed:** Ask Q1d (below), then output JSON immediately. No enrichment needed — the hire page handles the rest.
-
-### A2: New worker
-"No problem — let me grab a few details."
-Ask ONE AT A TIME:
-1. "What's their first name?"
-2. "And their last name?"
-3. "What's the best email to reach them?"
-
-That's it for details — then ask Q1d. Skip country/skills for now; the manager can add those later.
-
-### Q1d (shared by A1 + A2): "Is this person coming in for a specific project, or are they replacing someone on your team?"
-- PROJECT → route: worksome. Output JSON.
-- REPLACE → route: vms. Output JSON.
-
-For both A1 and A2: after Q1d, you're done. Say "Perfect — I'm setting this up for you now." and output the JSON. No enrichment questions.
-
----
-
-## Path B: I need to find someone
-
-Q1b_discovery: "Would you like me to use AI to create a project brief? I can also search your talent pool for the best match."
-- YES → **B1**
-- NO / JUST DESCRIBE → **B2**
-
-### B1: AI Project Brief + Talent Match
-Q_project: "Tell me what you need this person to do — what's the project or deliverable?"
-
-After the manager describes what they need, do TWO things in your response:
-
-1. **Generate a short, professional project description** (2-4 sentences) that could be used as a job brief. Show it to the manager: "Here's a project brief based on what you've described:" followed by the description.
-
-2. **Extract the key skills** needed for this project and output them on a new line in this exact format:
-\`[TALENT_SEARCH: skill1, skill2, skill3]\`
-
-For example: \`[TALENT_SEARCH: UX Design, React, User Research]\`
-
-The system will automatically search the talent pool and return matching workers with their skills. You'll receive a system message with results.
-
-**When results arrive**, score each worker out of 10 based on how well their skills and experience match the project requirements. Present results like:
-
-"Here's who I found in your talent pool:"
-- *[Name]* — [Title] · Skills: [their skills] · *Match: 8/10* — [brief reason why they're a good/okay fit]
-- *[Name]* — [Title] · Skills: [their skills] · *Match: 6/10* — [reason]
-
-Then ask: "Would you like to hire one of these people?"
-
-- Pick someone → Ask Q1d. Then output JSON. Done.
-- None fit → "No problem — let me set up the role so we can find someone new." → Go to B2 Q3 onward (skip Q2, we already have the project description and skills).
-
-**If no workers found:** "I didn't find anyone with those skills in your talent pool yet. Let me set up the role." → Go to B2 Q3 onward.
-
-### B2: Full discovery
-Ask these in order, ONE AT A TIME. Skip any already answered:
-
-Q2: "Tell me about the work you need done — what's the role or project?"
-Q3: "Is this for a specific project with a deliverable, or ongoing support?" (weight: ${c.weights.deliverable_or_ongoing})
-Q4: "How long do you expect this to last?" (weight: ${c.weights.duration})
-Q5: "How many people do you need?" (weight: ${c.weights.headcount})
-
-If route is clear after Q5 → go to Enrichment.
-If ambiguous (scores within 1 point) → ask tiebreakers:
-Q6: "Would you prefer to pay for specific deliverables or on an hourly/daily rate?" (weight: ${c.weights.payment_model})
-Q7: "Will you be managing this person's day-to-day work?" (weight: ${c.weights.sdc})
-
-### Enrichment (B2 only)
-"Great — I know exactly where to send this. Just a couple more details."
-
-Ask ONE AT A TIME, but ONLY what's missing. Skip anything already covered:
-E1: "Can you give me a quick summary of what this person will be doing?" (skip if Q2 covered it)
-E2: "What skills or experience are most important?" (SKIP if skills were provided in B1 or anywhere else)
-E3: "Will this be remote, on-site, or hybrid?"
-
-That's it. You do NOT need to ask about budget — keep it short. Once you have a description and skills, output JSON.
-
----
-
-## Routing Logic
-
-### Knockout signals (instant route — check every answer)
-VMS if: ${c.knockouts.vms.join(", ")} or 10+ identical roles
-Worksome if: ${c.knockouts.worksome.join(", ")}
-After a knockout, still ask remaining enrichment questions.
-
-### Scoring (B2 only)
-Deliverable/ongoing: wt ${c.weights.deliverable_or_ongoing} | Duration: wt ${c.weights.duration} | Headcount: wt ${c.weights.headcount} | Payment: wt ${c.weights.payment_model} | SDC: wt ${c.weights.sdc}
-Route clear if one side ≥ 5. Ambiguous if diff ≤ 1.
-
-VMS provider: ${c.vms.name}
-
----
-
-## Output
-When ready, say your confirmation, then on a NEW LINE output EXACTLY:
-\`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"2-3 sentence job description","skills":["skill1","skill2"],"known_worker":true_or_false,"worker_name":"...or_null","worker_first_name":"...or_null","worker_last_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"worker_country":"...or_null","worker_skills":["skill1","skill2"],"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","budget":"...or_null"}
-\`\`\`
-
-For fast-track paths (A1, A2, B1-pick), it's fine if some fields are null — output what you have.
-
-## Rules
-1. ONE question at a time. Never stack.
-2. 1-3 sentences max per message.
-3. Never mention Worksome, ${c.vms.name}, SDC, scoring, or routing.
-4. No procurement jargon.
-5. Be conversational — like a helpful colleague, not a form.
-6. Fast-track paths (A1, A2, B1-pick) should feel like 3-4 messages total. Don't pad them with extra questions.`;
+  return require("../prompt").buildSystemPrompt(getConfig(), { channel: "slack" });
 }
 
 const sessions = new Map();          // userId → messages array
+const sessionStarts = new Map();     // userId → intake start time (for audit duration)
 const sessionTimestamps = new Map(); // userId → last active timestamp
 const waitingForName = new Set();    // Track users in the "what's their name?" state
 const SESSION_TTL = 30 * 60_000;     // 30 minutes
@@ -172,6 +47,7 @@ sessions.get = function(key) {
 const origDelete = sessions.delete.bind(sessions);
 sessions.delete = function(key) {
   sessionTimestamps.delete(key);
+  sessionStarts.delete(key);
   return origDelete(key);
 };
 
@@ -209,7 +85,7 @@ function detectQuickReplies(text) {
   if (t.includes("prefer to pay") && (t.includes("deliverable") || t.includes("hourly")))
     return ["Pay for deliverables / milestones", "Hourly or daily rate"];
   // Enrichment quick replies
-  if (t.includes("remote") && t.includes("on-site") || t.includes("remote") && t.includes("hybrid"))
+  if ((t.includes("remote") && t.includes("on-site")) || (t.includes("remote") && t.includes("hybrid")))
     return ["Remote", "On-site", "Hybrid"];
   if (t.includes("budget") && t.includes("rate") && t.includes("mind"))
     return ["I have a budget in mind", "No specific budget yet"];
@@ -217,6 +93,7 @@ function detectQuickReplies(text) {
 }
 
 function buildBlocks(text, quickReplies, routeResult) {
+  const config = getConfig();
   const blocks = [{ type: "section", text: { type: "mrkdwn", text } }];
 
   if (quickReplies) {
@@ -262,58 +139,185 @@ function buildBlocks(text, quickReplies, routeResult) {
       fields.push({ type: "mrkdwn", text: `*Worker*\n${routeResult.worker_first_name || ''} ${routeResult.worker_last_name || ''} invited` });
     }
     blocks.push({ type: "section", fields });
-    const buttonLabel = isNewWorker ? "View in Worksome →" : `Continue in ${dest} →`;
-    blocks.push({
-      type: "actions",
-      elements: [{
-        type: "button",
-        text: { type: "plain_text", text: buttonLabel, emoji: true },
-        url, action_id: "open_destination", style: "primary",
-      }],
-    });
+    if (routeResult._approval) {
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `:double_vertical_bar: *Approval required:* ${routeResult._approval.action}\n_Rule: ${routeResult._approval.condition}_ — your request is on hold until it's approved.`,
+        },
+      });
+    } else {
+      const buttonLabel = isNewWorker ? "View in Worksome →" : `Continue in ${dest} →`;
+      blocks.push({
+        type: "actions",
+        elements: [{
+          type: "button",
+          text: { type: "plain_text", text: buttonLabel, emoji: true },
+          url, action_id: "open_destination", style: "primary",
+        }],
+      });
+    }
   }
 
   return blocks;
 }
 
+// ─── Talent + GitHub discovery cards (Block Kit) ───────
+function workerCardBlocks(workers) {
+  const blocks = [
+    { type: "divider" },
+    { type: "section", text: { type: "mrkdwn", text: ":busts_in_silhouette: *Talent pool matches*" } },
+  ];
+  for (const w of workers.slice(0, 3)) {
+    const meta = [
+      w.title || null,
+      w.location || null,
+      w.dayRate ? `${w.currency || ""} ${w.dayRate}/day`.trim() : null,
+      w.isCurrentlyHired ? "on a hire" : ((w.totalPaid || 0) > 0 ? "previously engaged" : null),
+    ].filter(Boolean).join(" · ");
+    const skills = (w.skills || []).slice(0, 6).join(", ");
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${w.name || "Unknown"}*  ·  Fit *${w.fitScore != null ? w.fitScore : "—"}/100*${meta ? `\n${meta}` : ""}${skills ? `\n_${skills}_` : ""}`,
+      },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: `Choose ${(w.name || "worker").split(" ")[0]}`.slice(0, 75), emoji: true },
+        action_id: `pick_worker_${w.id}`,
+        value: JSON.stringify({ name: w.name, id: w.id }).slice(0, 2000),
+      },
+    });
+  }
+  return blocks;
+}
+
+function githubCardBlocks(leads) {
+  const blocks = [
+    { type: "divider" },
+    { type: "section", text: { type: "mrkdwn", text: ":octopus: *External GitHub profiles* — public technical work matching your brief" } },
+  ];
+  for (const lead of leads.slice(0, 3)) {
+    const langs = (lead.topLanguages || []).slice(0, 4).join(", ");
+    const repo = (lead.relevantRepositories || [])[0];
+    const lines = [
+      `*<${lead.githubProfileUrl}|${lead.displayName || lead.githubLogin}>*  ·  Fit *${lead.fitScore}/100*`,
+      lead.bio ? lead.bio.slice(0, 100) : null,
+      langs ? `_${langs}_` : null,
+      repo ? `↳ <${repo.url}|${repo.name.split("/").pop()}>${repo.stars ? ` · ${repo.stars}★` : ""}` : null,
+    ].filter(Boolean);
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: lines.join("\n") },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: "Draft invite", emoji: true },
+        action_id: `gh_invite_${lead.githubLogin}`,
+        value: JSON.stringify({ login: lead.githubLogin, name: lead.displayName, skills: (lead.inferredSkills || lead.topLanguages || []).slice(0, 4) }).slice(0, 2000),
+      },
+    });
+  }
+  blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: "Public GitHub data only — no contact info is shared until the candidate creates a Worksome profile." }] });
+  return blocks;
+}
+
 function parseRoute(text) {
-  const match = text.match(/```json\s*([\s\S]*?)```/);
-  if (!match) return null;
-  try { return JSON.parse(match[1]); } catch { return null; }
+  const check = routing.checkReply(text);
+  return check.hasRoute ? check.route : null;
 }
 
 function cleanReply(text) {
-  return text.replace(/```json[\s\S]*?```/, "").trim();
+  return text.replace(/```json[\s\S]*?(?:```|$)/, "").trim();
 }
 
 // ─── Register handlers on a Slack App instance ────────
-module.exports.register = function (app, anthropic) {
-  async function callClaude(userId) {
-    const messages = sessions.get(userId) || [];
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800,
-      system: buildSystemPrompt(),
-      messages,
+module.exports.register = function (app, gemini, auditLog) {
+  // Record a completed routing decision in the shared audit log
+  function recordIntake(userId, routeResult) {
+    if (!auditLog) return;
+    const startedAt = sessionStarts.get(userId);
+    const rec = auditLog.append({
+      type: "intake_routed",
+      channel: "slack",
+      manager: userId,
+      route: routeResult.route,
+      confidence: routeResult.confidence,
+      role_title: routeResult.role_title,
+      known_worker: routeResult.known_worker,
+      headcount: routeResult.headcount,
+      payment_model: routeResult.payment_model,
+      location: routeResult.location,
+      skills: routeResult.skills,
+      turns: (sessions.get(userId) || []).length,
+      approval_required: routeResult._approval ? routeResult._approval.action : null,
+      duration_seconds: startedAt ? Math.max(1, Math.round((Date.now() - startedAt) / 1000)) : null,
     });
-    return response.content[0].text;
+    routeResult._intakeId = rec.id;
+    console.log(`[Audit] Slack intake routed → ${routeResult.route} (${routeResult.role_title}) [${rec.id}]`);
+  }
+  // Convert messages to Gemini format
+  function toGeminiMessages(messages) {
+    return messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.text || m.content || '' }],
+    }));
   }
 
-  // Call Claude with an explicit message array (for follow-up calls)
-  async function callClaudeWithMessages(msgArray) {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800,
-      system: buildSystemPrompt(),
-      messages: msgArray,
+  async function callGemini(userId) {
+    const messages = sessions.get(userId) || [];
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: toGeminiMessages(messages),
+      config: {
+        systemInstruction: buildSystemPrompt(),
+        maxOutputTokens: 1500,
+      },
     });
-    return response.content[0].text;
+    return response.text || "";
+  }
+
+  // Call with an explicit message array (for follow-up calls)
+  async function callGeminiWithMessages(msgArray) {
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: toGeminiMessages(msgArray),
+      config: {
+        systemInstruction: buildSystemPrompt(),
+        maxOutputTokens: 1500,
+      },
+    });
+    return response.text || "";
   }
 
   // ─── Shared reply processing (used by both message + quick_reply) ───
   async function processReply(userId, channel, client) {
     const history = sessions.get(userId);
-    const reply = await callClaude(userId);
+    let reply = await callGemini(userId);
+
+    // Validate any routing JSON; one corrective retry on malformed/truncated output
+    const chk = routing.checkReply(reply);
+    if (chk.needsRetry) {
+      console.warn(`[Slack] Invalid routing JSON (${chk.reason}) — retrying once`);
+      try {
+        const fixed = await callGeminiWithMessages([
+          ...(sessions.get(userId) || []),
+          { role: "assistant", content: reply },
+          { role: "user", content: routing.retryInstruction(chk.reason) },
+        ]);
+        const fixedChk = routing.checkReply(fixed);
+        if (fixedChk.hasRoute) {
+          reply = (chk.prose ? chk.prose + "\n\n" : "") +
+            "```json\n" + JSON.stringify(fixedChk.route) + "\n```";
+        } else {
+          reply = chk.prose || reply;
+        }
+      } catch (e) {
+        console.warn("[Slack] Routing retry failed:", e.message);
+        reply = chk.prose || reply;
+      }
+    }
 
     // Check for [TALENT_SEARCH: ...] marker — B1 AI Project Brief flow
     const talentSearchMatch = reply.match(/\[TALENT_SEARCH:\s*([^\]]+)\]/);
@@ -336,43 +340,76 @@ module.exports.register = function (app, anthropic) {
         text: `:mag: Searching your talent pool for: ${skillsText}...`,
       });
 
-      // Search talent pool by skills
+      // Search talent pool + GitHub in parallel
+      const skillNames = skillsText.split(',').map(s => s.trim()).filter(Boolean);
       let workers = [];
       let resolved = [];
-      try {
-        const result = await worksome.searchWorkersBySkills(skillsText.split(',').map(s => s.trim()));
-        workers = result.workers || [];
-        resolved = result.resolvedSkills || [];
-      } catch (err) {
-        console.warn("[Slack] Skill search failed:", err.message);
-      }
+      let ghLeads = [];
+
+      const ghCriteria = { skills: skillNames, languages: [], keywords: skillNames, location: null, maxResults: 3 };
+      const [wsResult, ghProfiles] = await Promise.all([
+        worksome.searchWorkersBySkills(skillNames).catch(err => {
+          console.warn("[Slack] Skill search failed:", err.message);
+          return { workers: [], resolvedSkills: [] };
+        }),
+        githubClient.discoverTalent(ghCriteria).catch(err => {
+          console.warn("[Slack] GitHub discovery failed:", err.message);
+          return [];
+        }),
+      ]);
+
+      // Score + rank internal matches (same engine as the web portal)
+      const criteria = { skills: skillNames, keywords: skillNames };
+      workers = (wsResult.workers || []).map(w => scoreWorker(w, criteria)).sort((a, b) => b.fitScore - a.fitScore);
+      resolved = wsResult.resolvedSkills || [];
+      ghLeads = ghProfiles.map(p => buildExternalTalentLead(p, ghCriteria)).sort((a, b) => b.fitScore - a.fitScore).slice(0, 3);
 
       const skillSummary = resolved.map(s => s.name).join(', ') || skillsText;
+
+      // Post talent cards (internal first, then external)
+      if (workers.length > 0) {
+        await client.chat.postMessage({ channel, text: "Talent pool matches", blocks: workerCardBlocks(workers) });
+      }
+      if (ghLeads.length > 0) {
+        await client.chat.postMessage({ channel, text: "External GitHub profiles", blocks: githubCardBlocks(ghLeads) });
+      }
 
       // Build follow-up message array with results
       history.push({ role: "assistant", content: reply });
       let followUpMsg;
 
+      const ghNote = ghLeads.length > 0
+        ? ` I've also posted ${ghLeads.length} external GitHub profile card(s) with relevant public work — the manager can review them and draft invites from the cards.`
+        : '';
+
       if (workers.length > 0) {
         const workerList = workers.map(w =>
-          `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''}${w.skills && w.skills.length > 0 ? ` | Skills: ${w.skills.join(', ')}` : ''} [ID: ${w.id}]`
+          `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.skills && w.skills.length > 0 ? ` | Skills: ${w.skills.join(', ')}` : ''} [ID: ${w.id}]`
         ).join('\n');
-        followUpMsg = `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers:\n${workerList}\n\nScore each worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason. Then ask if the manager wants to hire one of them. IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]`;
+        followUpMsg = `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers (cards already posted in the thread):\n${workerList}\n\nScore each worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason.${ghNote} Then ask if the manager wants to hire one of them — they can also tap the Choose button on a card. IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]`;
+      } else if (ghLeads.length > 0) {
+        followUpMsg = `[SYSTEM: Talent pool search for skills "${skillSummary}" found no internal matches, but I've posted ${ghLeads.length} external GitHub profile card(s) with relevant public work. Tell the manager you didn't find anyone in their talent pool yet, but there are external GitHub profiles below they can review and invite to Worksome. Also offer to set up the role. Continue to Path B2 Q3 onward — you already have the project description and skills.]`;
       } else {
         followUpMsg = `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches. Tell the manager you didn't find anyone with those skills in their talent pool yet. Offer to set up the role so they can find the right person. Continue to Path B2 Q3 onward — you already have the project description and skills.]`;
       }
 
       history.push({ role: "user", content: followUpMsg });
 
-      // Second Claude call with talent pool results
-      const followUpReply = await callClaudeWithMessages(history);
+      // Second Gemini call with talent pool results
+      const followUpReply = await callGeminiWithMessages(history);
       const routeResult = parseRoute(followUpReply);
       const followUpClean = cleanReply(followUpReply);
       const quickReplies = routeResult ? null : detectQuickReplies(followUpClean);
       history.push({ role: "assistant", content: followUpReply });
 
-      // Attempt Worksome handoff if routed
-      if (routeResult && routeResult.route === "worksome") {
+      if (routeResult) {
+        const gate = approval.evaluateGates(configStore.get().approval_gates, routeResult);
+        if (gate) routeResult._approval = gate;
+        recordIntake(userId, routeResult);
+      }
+
+      // Attempt Worksome handoff if routed (held when an approval gate fires)
+      if (routeResult && routeResult.route === "worksome" && !routeResult._approval) {
         try {
           const handoffData = await worksome.handoff(routeResult);
           routeResult._handoff = handoffData;
@@ -391,14 +428,20 @@ module.exports.register = function (app, anthropic) {
     const clean = cleanReply(reply);
     const quickReplies = routeResult ? null : detectQuickReplies(clean);
 
-    // Check if Claude is now asking for the worker's name
+    // Check if the assistant is now asking for the worker's name
     if (!routeResult && isAskingForName(clean)) {
       waitingForName.add(userId);
     }
     history.push({ role: "assistant", content: reply });
 
-    // Attempt Worksome handoff if routed there
-    if (routeResult && routeResult.route === "worksome") {
+    if (routeResult) {
+      const gate = approval.evaluateGates(configStore.get().approval_gates, routeResult);
+      if (gate) routeResult._approval = gate;
+      recordIntake(userId, routeResult);
+    }
+
+    // Attempt Worksome handoff if routed there (held when an approval gate fires)
+    if (routeResult && routeResult.route === "worksome" && !routeResult._approval) {
       try {
         const handoffData = await worksome.handoff(routeResult);
         routeResult._handoff = handoffData;
@@ -414,8 +457,9 @@ module.exports.register = function (app, anthropic) {
   app.command("/hire", async ({ command, ack, client }) => {
     await ack();
     const userId = command.user_id;
-    const greeting = `${config.assistant_name}\n\nHi! I'm here to help you find the right talent. Let's get started.\n\nDo you already know who you'd like to work with?`;
+    const greeting = `${getConfig().assistant_name}\n\nHi! I'm here to help you find the right talent. Let's get started.\n\nDo you already know who you'd like to work with?`;
     sessions.set(userId, [{ role: "assistant", content: greeting }]);
+    sessionStarts.set(userId, Date.now());
     await client.chat.postMessage({
       channel: command.user_id,
       text: greeting,
@@ -427,7 +471,10 @@ module.exports.register = function (app, anthropic) {
     if (message.bot_id || message.subtype) return;
     const userId = message.user;
     if (!sessions.has(userId)) {
-      await client.chat.postMessage({ channel: message.channel, text: 'Type `/hire` to start a new hiring request.' });
+      // Only nudge in DMs — stay silent in channels the bot happens to be in
+      if (message.channel_type === 'im') {
+        await client.chat.postMessage({ channel: message.channel, text: 'Type `/hire` to start a new hiring request.' });
+      }
       return;
     }
     const history = sessions.get(userId);
@@ -440,7 +487,7 @@ module.exports.register = function (app, anthropic) {
         const workers = await worksome.searchWorkers(message.text.trim());
         history.push({ role: "assistant", content: `Let me check the talent pool for "${message.text}"...` });
         if (workers.length > 0) {
-          const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.email ? ` — ${w.email}` : ''} [ID: ${w.id}]`).join('\n');
+          const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''} [ID: ${w.id}]`).join('\n');
           history.push({ role: "user", content: `[SYSTEM: Talent pool search results for "${message.text}":\n${workerList}\nPresent these matches to the manager and ask them to confirm which worker. IMPORTANT: When outputting the final JSON, you MUST include the worker's ID exactly as shown above in the worker_id field.]` });
         } else {
           history.push({ role: "user", content: `[SYSTEM: Talent pool search for "${message.text}" returned no results. Tell the manager you couldn't find them but you can get them set up. Ask for their first name to start collecting details (first name, last name, email, country, skills) — one question at a time.]` });
@@ -453,7 +500,7 @@ module.exports.register = function (app, anthropic) {
     try {
       await processReply(userId, message.channel, client);
     } catch (err) {
-      console.error("Claude API error:", err.message);
+      console.error("Gemini API error:", err.message);
       await client.chat.postMessage({ channel: message.channel, text: "Something went wrong — please try again or type `/hire` to restart." });
     }
   });
@@ -473,9 +520,54 @@ module.exports.register = function (app, anthropic) {
     try {
       await processReply(userId, channel, client);
     } catch (err) {
-      console.error("Claude API error:", err.message);
+      console.error("Gemini API error:", err.message);
       await client.chat.postMessage({ channel, text: "Something went wrong — please try again or type `/hire` to restart." });
     }
+  });
+
+  // "Choose <worker>" button on a talent card — feeds the pick back into the conversation
+  app.action(/^pick_worker_/, async ({ action, body, ack, client }) => {
+    await ack();
+    const userId = body.user.id;
+    const channel = body.channel.id;
+    if (!sessions.has(userId)) {
+      await client.chat.postMessage({ channel, text: 'That session has ended. Type `/hire` to start a new one.' });
+      return;
+    }
+    let v = {};
+    try { v = JSON.parse(action.value); } catch {}
+    const text = `I'd like to hire ${v.name || 'this worker'}`;
+    await client.chat.postMessage({ channel, text: `You chose: ${v.name || 'a worker'}`, blocks: [{ type: "context", elements: [{ type: "mrkdwn", text: `↳ *${text}*` }] }] });
+    const history = sessions.get(userId);
+    history.push({ role: "user", content: `${text}${v.id ? ` [worker_id: ${v.id}]` : ''}` });
+    try {
+      await processReply(userId, channel, client);
+    } catch (err) {
+      console.error("Gemini API error:", err.message);
+      await client.chat.postMessage({ channel, text: "Something went wrong — please try again or type `/hire` to restart." });
+    }
+  });
+
+  // "Draft invite" button on a GitHub card — posts a copy-ready invite message
+  app.action(/^gh_invite_/, async ({ action, body, ack, client }) => {
+    await ack();
+    const channel = body.channel.id;
+    let v = {};
+    try { v = JSON.parse(action.value); } catch {}
+    if (!v.login) return;
+    const cfg = getConfig();
+    const firstName = (v.name || v.login).split(" ")[0];
+    const skills = (v.skills || []).join(", ");
+    const inviteLink = `${cfg.worksome_url.replace("/login", "")}/invite/gh/${v.login}`;
+    const msg = `Hi ${firstName},\n\nI came across your public GitHub work and thought your experience with ${skills || "your stack"} could be relevant for a freelance opportunity with our team.\n\nThe role would be managed through Worksome for contracting, compliance, and payment.\n\nIf you're open to hearing more, you can create a Worksome profile here and I'll send you the job to review:\n${inviteLink}\n\nBest,\nThe hiring team`;
+    await client.chat.postMessage({
+      channel,
+      text: `Invite draft for @${v.login}`,
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: `*Invite draft for <https://github.com/${v.login}|@${v.login}>* — copy, personalise, and send:` } },
+        { type: "section", text: { type: "mrkdwn", text: "```" + msg + "```" } },
+      ],
+    });
   });
 
   app.action("open_destination", async ({ ack }) => { await ack(); });

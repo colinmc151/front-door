@@ -1,14 +1,57 @@
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
-const Anthropic = require("@anthropic-ai/sdk");
+const crypto = require("crypto");
+const { GoogleGenAI } = require("@google/genai");
 const worksome = require("./worksome-client");
 const github = require("./github-client");
 const { buildExternalTalentLead } = require("./github-scoring");
 const { scoreWorker } = require("./worksome-scoring");
+const configStore = require("./config-store");
+const routing = require("./routing");
+const eventLog = require("./event-log");
+const { computeAnalytics } = require("./analytics");
+const approval = require("./approval");
+const { buildSystemPrompt } = require("./prompt");
+const beeline = require("./beeline-mapper");
+
+// Strip PII / sensitive figures before worker data leaves the server.
+// `previouslyEngaged` replaces the raw totalPaid amount; emails stay
+// server-side (they're not needed for matching or display).
+function sanitizeWorker(w) {
+  const { email, totalPaid, ...rest } = w;
+  return { ...rest, previouslyEngaged: (totalPaid || 0) > 0 };
+}
+
+const auditLog = eventLog.open("audit");       // routed intakes + handoffs (append-only)
+const webhookLog = eventLog.open("webhooks");  // inbound Worksome lifecycle events
 
 const app = express();
-app.use(express.json({ limit: "50kb" }));
+// Trust the first proxy hop (load balancer) so req.ip is the real client
+// IP for rate limiting, and req.secure reflects x-forwarded-proto.
+app.set("trust proxy", 1);
+app.use(express.json({
+  limit: "50kb",
+  verify: (req, res, buf) => { req.rawBody = buf; }, // raw body kept for webhook signature checks
+}));
+
+// ─── Security headers ─────────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader("Content-Security-Policy", [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'", // inline <style> blocks + React style attributes
+    "img-src 'self' https: data:",      // worker/GitHub avatars, configurable logo/hero URLs
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; "));
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("X-Frame-Options", "DENY");
+  next();
+});
 
 // ─── Simple in-memory rate limiter ────────────────────
 const rateLimitMap = new Map();
@@ -40,186 +83,184 @@ setInterval(() => {
 
 app.use("/api", rateLimit);
 
+// ─── Auth: API key (programmatic) + signed session cookie (portal) ──
+// The API key is never sent to the browser. Portal visitors get a
+// short-lived signed HttpOnly cookie when the page is served.
+const API_KEY = process.env.FRONT_DOOR_API_KEY;
+const SESSION_SECRET = crypto.randomBytes(32); // rotates on restart; cookie is reissued on page load
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const SESSION_COOKIE = "fd_session";
+
+function signSession(exp) {
+  return crypto.createHmac("sha256", SESSION_SECRET).update(String(exp)).digest("hex");
+}
+
+function issueSessionToken() {
+  const exp = Date.now() + SESSION_TTL_MS;
+  return `${exp}.${signSession(exp)}`;
+}
+
+function verifySessionToken(token) {
+  if (!token) return false;
+  const [expStr, sig] = token.split(".");
+  const exp = parseInt(expStr, 10);
+  if (!exp || exp < Date.now() || !sig) return false;
+  const expected = signSession(exp);
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function parseCookies(req) {
+  const out = {};
+  const header = req.headers.cookie;
+  if (!header) return out;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
+}
+
+function timingSafeKeyMatch(provided) {
+  if (!provided || !API_KEY) return false;
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(API_KEY);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Issue/refresh the session cookie when serving portal pages
+app.use((req, res, next) => {
+  const isPortalPage = req.method === "GET" && (req.path === "/" || req.path.endsWith(".html"));
+  if (isPortalPage && !verifySessionToken(parseCookies(req)[SESSION_COOKIE])) {
+    const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
+    res.setHeader("Set-Cookie",
+      `${SESSION_COOKIE}=${issueSessionToken()}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure ? "; Secure" : ""}`);
+  }
+  next();
+});
+
 // ─── Serve the portal ─────────────────────────────────
 app.use(express.static(path.join(__dirname, "public")));
 
-// ─── API key auth ─────────────────────────────────────
-const API_KEY = process.env.FRONT_DOOR_API_KEY;
-
-// Bootstrap endpoint (before auth middleware) — portal fetches key on load
-app.get("/api/bootstrap", (req, res) => {
-  res.json({ apiKey: API_KEY || null });
-});
-
-// Health check is also unauthenticated (for monitoring)
-// (defined later in the file)
-
-function requireApiKey(req, res, next) {
+function requireAuth(req, res, next) {
   if (!API_KEY) return next(); // skip auth if no key configured (dev mode)
   if (req.path === "/health") return next(); // health check exempt
-  const provided = req.headers["x-api-key"];
-  if (provided === API_KEY) return next();
+  if (req.path === "/webhooks/worksome") return next(); // authenticated by signature instead
+  if (timingSafeKeyMatch(req.headers["x-api-key"])) return next(); // programmatic clients
+  if (verifySessionToken(parseCookies(req)[SESSION_COOKIE])) return next(); // portal session
   return res.status(401).json({ error: "Unauthorized" });
 }
 
-app.use("/api", requireApiKey);
+app.use("/api", requireAuth);
 
-// ─── System prompt config (server-side only) ──────────
-const promptConfig = {
-  assistant_name: 'Worksome Hiring Hub',
-  vms: { name: 'Beeline' },
-  weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
-  knockouts: {
-    vms: ['agency', 'staffing firm', 'temp workers', 'temps'],
-    worksome: ['freelancer', 'independent consultant', 'sow', 'statement of work', 'fixed bid', 'milestone payment']
-  },
-};
+// ─── Config API (persisted server-side, drives the prompt) ──
+app.get("/api/config", (req, res) => {
+  res.json(configStore.get());
+});
 
-function buildSystemPrompt(cfg) {
-  return `You are ${cfg.assistant_name}, a hiring assistant that helps managers find the right talent quickly. You make the process simple — the manager describes what they need in plain language, and you handle the rest.
+app.put("/api/config", (req, res) => {
+  try {
+    const saved = configStore.update(req.body);
+    console.log("[Config] Updated by", req.ip);
+    res.json(saved);
+  } catch (err) {
+    console.error("[Config] Save failed:", err.message);
+    res.status(500).json({ error: "Could not save settings" });
+  }
+});
 
-You are warm, professional, and efficient. You never use procurement jargon (no "SOW," "staff augmentation," "IC," or "VMS"). You speak the manager's language.
 
-## Your Job
-Short intake interview → route the request → gather just enough detail. Ask ONE question at a time. Keep messages to 1-3 sentences. Never explain routing logic.
+// ─── Gemini API (locked to server-side prompt) ────────
+const gemini = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 
-## The Conversation
-
-### Q1: "Do you already know who you'd like to work with?"
-- YES → Path A
-- NO → Path B
-
----
-
-## Path A: I have someone in mind
-
-Q1b: "Great — have you worked with this person through us before?"
-- YES → **A1** (search talent pool)
-- NO → **A2** (new worker)
-
-### A1: Existing worker
-Q1c: "What's their name?"
-The system searches the talent pool automatically. You'll get a system message with results.
-
-- **Found:** Show matches (name + title). Ask: "Is this who you're looking for?"
-- **Not found:** "I couldn't find them — let me get them set up instead." → switch to A2.
-- **Confirmed:** Ask Q1d (below), then output JSON immediately. No enrichment needed — the hire page handles the rest.
-
-### A2: New worker
-"No problem — let me grab a few details."
-Ask ONE AT A TIME:
-1. "What's their first name?"
-2. "And their last name?"
-3. "What's the best email to reach them?"
-
-That's it for details — then ask Q1d. Skip country/skills for now; the manager can add those later.
-
-### Q1d (shared by A1 + A2): "Is this person coming in for a specific project, or are they replacing someone on your team?"
-- PROJECT → route: worksome. Output JSON.
-- REPLACE → route: vms. Output JSON.
-
-For both A1 and A2: after Q1d, you're done. Say "Perfect — I'm setting this up for you now." and output the JSON. No enrichment questions.
-
----
-
-## Path B: I need to find someone
-
-Q1b_discovery: "Would you like me to use AI to create a project brief? I can also search your talent pool for the best match."
-- YES → **B1**
-- NO / JUST DESCRIBE → **B2**
-
-### B1: AI Project Brief + Talent Match
-Q_project: "Tell me what you need this person to do — what's the project or deliverable?"
-
-After the manager describes what they need, do TWO things in your response:
-
-1. **Generate a short, professional project description** (2-4 sentences) that could be used as a job brief. Show it to the manager: "Here's a project brief based on what you've described:" followed by the description.
-
-2. **Extract the key skills** needed for this project and output them on a new line in this exact format:
-\`[TALENT_SEARCH: skill1, skill2, skill3]\`
-
-For example: \`[TALENT_SEARCH: UX Design, React, User Research]\`
-
-The system will automatically search the talent pool and return matching workers with their skills. You'll receive a system message with results.
-
-**When results arrive**, score each worker out of 10 based on how well their skills and experience match the project requirements. Present results like:
-
-"Here's who I found in your talent pool:"
-- **[Name]** — [Title] · Skills: [their skills] · **Match: 8/10** — [brief reason why they're a good/okay fit]
-- **[Name]** — [Title] · Skills: [their skills] · **Match: 6/10** — [reason]
-
-Then ask: "Would you like to hire one of these people?"
-
-- Pick someone → Ask Q1d. Then output JSON. Done.
-- None fit → "No problem — let me set up the role so we can find someone new." → Go to B2 Q3 onward (skip Q2, we already have the project description and skills).
-
-**If no workers found:** The system will automatically search GitHub for external technical profiles with matching public work. Tell the manager: "I didn't find anyone with those skills in your talent pool yet, but I've found some external GitHub profiles with relevant experience. You can review them in the panel below — shortlist anyone who looks promising and draft an invite to bring them onto Worksome." Then continue to B2 Q3 onward to set up the role.
-
-IMPORTANT language rules for GitHub discovery:
-- Never say someone is "available for hire" or "looking for work" — we only see public technical signals.
-- Use: "external GitHub profile," "public technical work," "invite to Worksome."
-- Never share contact info. The candidate must create a Worksome profile first.
-- This is discovery from public data, not a talent marketplace.
-
-### B2: Full discovery
-Ask these in order, ONE AT A TIME. Skip any already answered:
-
-Q2: "Tell me about the work you need done — what's the role or project?"
-Q3: "Is this for a specific project with a deliverable, or ongoing support?" (weight: ${cfg.weights.deliverable_or_ongoing})
-Q4: "How long do you expect this to last?" (weight: ${cfg.weights.duration})
-Q5: "How many people do you need?" (weight: ${cfg.weights.headcount})
-
-If route is clear after Q5 → go to Enrichment.
-If ambiguous (scores within 1 point) → ask tiebreakers:
-Q6: "Would you prefer to pay for specific deliverables or on an hourly/daily rate?" (weight: ${cfg.weights.payment_model})
-Q7: "Will you be managing this person's day-to-day work?" (weight: ${cfg.weights.sdc})
-
-### Enrichment (B2 only)
-"Great — I know exactly where to send this. Just a couple more details."
-
-Ask ONE AT A TIME, but ONLY what's missing. Skip anything already covered:
-E1: "Can you give me a quick summary of what this person will be doing?" (skip if Q2 covered it)
-E2: "What skills or experience are most important?" (SKIP if skills were provided in B1 or anywhere else)
-E3: "Will this be remote, on-site, or hybrid?"
-
-That's it. You do NOT need to ask about budget — keep it short. Once you have a description and skills, output JSON.
-
----
-
-## Routing Logic
-
-### Knockout signals (instant route — check every answer)
-VMS if: ${cfg.knockouts.vms.join(', ')} or 10+ identical roles
-Worksome if: ${cfg.knockouts.worksome.join(', ')}
-After a knockout, still ask remaining enrichment questions.
-
-### Scoring (B2 only)
-Deliverable/ongoing: wt ${cfg.weights.deliverable_or_ongoing} | Duration: wt ${cfg.weights.duration} | Headcount: wt ${cfg.weights.headcount} | Payment: wt ${cfg.weights.payment_model} | SDC: wt ${cfg.weights.sdc}
-Route clear if one side ≥ 5. Ambiguous if diff ≤ 1.
-
-VMS provider: ${cfg.vms.name}
-
----
-
-## Output
-When ready, say your confirmation, then on a NEW LINE output EXACTLY:
-\`\`\`json
-{"route":"worksome_or_vms","confidence":"high_or_medium","role_title":"...","description":"2-3 sentence job description","skills":["skill1","skill2"],"known_worker":true_or_false,"worker_name":"...or_null","worker_first_name":"...or_null","worker_last_name":"...or_null","worker_email":"...or_null","worker_id":"...or_null","worker_found":true_or_false_or_null,"worker_country":"...or_null","worker_skills":["skill1","skill2"],"sdc_present":true_or_false_or_null,"headcount":1,"duration":"...","payment_model":"hourly_or_milestone_or_daily_or_unknown","location":"remote_or_onsite_or_hybrid","budget":"...or_null"}
-\`\`\`
-
-For fast-track paths (A1, A2, B1-pick), it's fine if some fields are null — output what you have.
-
-## Rules
-1. ONE question at a time. Never stack.
-2. 1-3 sentences max per message.
-3. Never mention Worksome, ${cfg.vms.name}, SDC, scoring, or routing.
-4. No procurement jargon.
-5. Be conversational — like a helpful colleague, not a form.
-6. Fast-track paths (A1, A2, B1-pick) should feel like 3-4 messages total. Don't pad them with extra questions.`;
+// Convert chat messages [{role:'user'|'assistant', text:'...'}]
+// to Gemini format [{role:'user'|'model', parts:[{text:'...'}]}]
+function toGeminiMessages(messages) {
+  return messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.text || m.content || '' }],
+  }));
 }
 
-// ─── Claude API (locked to server-side prompt) ────────
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const CHAT_MODEL = "gemini-2.5-flash";
+const CHAT_MAX_TOKENS = 1500; // headroom so the routing JSON never truncates
+
+// Shared post-processing for both chat endpoints: validate/repair the
+// routing JSON (one corrective retry), record the audit entry, and
+// evaluate approval gates against the routing decision.
+async function finalizeChatReply(geminiMessages, rawText, genConfig, body) {
+  let text = rawText;
+  let check = routing.checkReply(text);
+
+  if (check.needsRetry) {
+    console.warn(`[Routing] Invalid JSON from model (${check.reason}) — retrying once`);
+    try {
+      const retryResponse = await gemini.models.generateContent({
+        model: CHAT_MODEL,
+        contents: [
+          ...geminiMessages,
+          { role: "model", parts: [{ text }] },
+          { role: "user", parts: [{ text: routing.retryInstruction(check.reason) }] },
+        ],
+        config: genConfig,
+      });
+      const retryCheck = routing.checkReply(retryResponse.text || "");
+      if (retryCheck.hasRoute) {
+        text = (check.prose ? check.prose + "\n\n" : "") +
+          "```json\n" + JSON.stringify(retryCheck.route) + "\n```";
+        check = retryCheck;
+      } else {
+        console.warn("[Routing] Retry did not produce valid JSON — returning prose only");
+        text = check.prose || text;
+      }
+    } catch (retryErr) {
+      console.warn("[Routing] Retry call failed:", retryErr.message);
+      text = check.prose || text;
+    }
+  } else if (check.hasRoute) {
+    text = check.text; // prose + normalized JSON block
+  }
+
+  // Audit + approval gates on every completed routing decision
+  let intakeId = null;
+  let gate = null;
+  if (check.hasRoute) {
+    const r = check.route;
+    gate = approval.evaluateGates(configStore.get().approval_gates, r);
+    const startedAt = Number(body.started_at);
+    const record = auditLog.append({
+      type: "intake_routed",
+      channel: "web",
+      route: r.route,
+      confidence: r.confidence,
+      role_title: r.role_title,
+      known_worker: r.known_worker,
+      headcount: r.headcount,
+      payment_model: r.payment_model,
+      location: r.location,
+      skills: r.skills,
+      turns: geminiMessages.length,
+      approval_required: gate ? gate.action : null,
+      duration_seconds: Number.isFinite(startedAt) && startedAt > 0
+        ? Math.max(1, Math.round((Date.now() - startedAt) / 1000))
+        : null,
+    });
+    intakeId = record.id;
+    console.log(`[Audit] Intake routed → ${r.route} (${r.role_title}) [${intakeId}]`);
+
+    if (gate) {
+      console.log(`[Approval] Gate triggered: ${gate.condition} → ${gate.action}`);
+      if (slackNotify && process.env.SLACK_NOTIFY_CHANNEL) {
+        slackNotify(`⏸ Hiring request *${r.role_title}* requires approval: *${gate.action}* (rule: ${gate.condition})`)
+          .catch(err => console.warn("[Approval] Slack notify failed:", err.message));
+      }
+    }
+  }
+
+  return { text, intakeId, approval: gate ? { required: true, ...gate } : null };
+}
 
 app.post("/api/chat", async (req, res) => {
   try {
@@ -229,21 +270,78 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "Missing messages array" });
     }
 
-    const systemPrompt = buildSystemPrompt(promptConfig);
+    const systemPrompt = buildSystemPrompt(configStore.get());
+    const geminiMessages = toGeminiMessages(messages);
+    const genConfig = { systemInstruction: systemPrompt, maxOutputTokens: CHAT_MAX_TOKENS };
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 800,
-      system: systemPrompt,
-      messages,
+    const response = await gemini.models.generateContent({
+      model: CHAT_MODEL,
+      contents: geminiMessages,
+      config: genConfig,
     });
 
-    const text = response.content?.[0]?.text || "";
-    res.json({ text });
+    const result = await finalizeChatReply(geminiMessages, response.text || "", genConfig, req.body);
+    res.json({
+      text: result.text,
+      ...(result.intakeId ? { intakeId: result.intakeId } : {}),
+      ...(result.approval ? { approval: result.approval } : {}),
+    });
   } catch (err) {
-    console.error("Claude API error:", err.message);
-    res.status(500).json({ error: err.message });
+    console.error("Gemini API error:", err.message);
+    res.status(500).json({ error: "The assistant is temporarily unavailable. Please try again." });
   }
+});
+
+// ─── Streaming chat (SSE) — same pipeline, progressive output ──
+app.post("/api/chat/stream", async (req, res) => {
+  const { messages } = req.body;
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "Missing messages array" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable proxy buffering
+  res.flushHeaders();
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+  try {
+    const systemPrompt = buildSystemPrompt(configStore.get());
+    const geminiMessages = toGeminiMessages(messages);
+    const genConfig = { systemInstruction: systemPrompt, maxOutputTokens: CHAT_MAX_TOKENS };
+
+    const stream = await gemini.models.generateContentStream({
+      model: CHAT_MODEL,
+      contents: geminiMessages,
+      config: genConfig,
+    });
+
+    let full = "";
+    for await (const chunk of stream) {
+      const t = chunk.text || "";
+      if (t) {
+        full += t;
+        send({ delta: t });
+      }
+    }
+
+    const result = await finalizeChatReply(geminiMessages, full, genConfig, req.body);
+    send({ done: true, text: result.text, intakeId: result.intakeId, approval: result.approval });
+  } catch (err) {
+    console.error("Gemini stream error:", err.message);
+    send({ error: "The assistant is temporarily unavailable. Please try again." });
+  }
+  res.end();
+});
+
+// ─── Analytics (computed from the audit log) ──────────
+app.get("/api/analytics", (req, res) => {
+  const records = auditLog.all();
+  res.json(computeAnalytics(
+    records.filter(r => r.type === "intake_routed"),
+    records.filter(r => r.type === "handoff")
+  ));
 });
 
 // ─── Worksome worker search ──────────────────────────
@@ -259,10 +357,10 @@ app.get("/api/search-worker", async (req, res) => {
     }
 
     const workers = await worksome.searchWorkers(name.trim());
-    res.json({ workers, query: name });
+    res.json({ workers: workers.map(sanitizeWorker), query: name });
   } catch (err) {
     console.error("[Worksome] Search error:", err.message);
-    res.json({ workers: [], query: req.query.name, error: err.message });
+    res.json({ workers: [], query: req.query.name, error: "Talent pool search failed" });
   }
 });
 
@@ -288,11 +386,24 @@ app.get("/api/search-skills", async (req, res) => {
       .map(w => scoreWorker(w, criteria))
       .sort((a, b) => b.fitScore - a.fitScore);
 
-    res.json({ ...result, workers: scoredWorkers, query: skills });
+    res.json({ ...result, workers: scoredWorkers.map(sanitizeWorker), query: skills });
   } catch (err) {
     console.error("[Worksome] Skill search error:", err.message);
-    res.json({ workers: [], resolvedSkills: [], query: req.query.skills, error: err.message });
+    res.json({ workers: [], resolvedSkills: [], query: req.query.skills, error: "Talent pool search failed" });
   }
+});
+
+// ─── Beeline requisition preview ──────────────────────
+// Shows the exact requisition Front Door would create in the VMS.
+// Becomes a real POST /requisitions call when an API connection exists.
+app.post("/api/beeline/preview", (req, res) => {
+  const routeResult = req.body || {};
+  if (!routeResult.role_title) {
+    return res.status(400).json({ error: "Missing route result with role_title" });
+  }
+  res.json(beeline.buildRequisition(routeResult, {
+    approvalRequired: !!routeResult._approvalRequired,
+  }));
 });
 
 // ─── Worksome handoff — create a draft job ───────────
@@ -316,6 +427,12 @@ app.post("/api/handoff/worksome", async (req, res) => {
     }
 
     const result = await worksome.handoff(routeResult);
+    auditLog.append({
+      type: "handoff",
+      intakeId: routeResult._intakeId || null,
+      job_id: result.job_id || null,
+      title: result.title || null,
+    });
     res.json(result);
   } catch (err) {
     console.error("[Worksome] Handoff error:", err.message);
@@ -325,15 +442,61 @@ app.post("/api/handoff/worksome", async (req, res) => {
       job_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
       status: "error",
       title: req.body?.role_title || "Role",
-      message: err.message,
+      message: "Could not create the draft job — continue in Worksome directly",
     });
+  }
+});
+
+// ─── Create job and invite selected workers ───────────
+app.post("/api/worksome/invite", async (req, res) => {
+  try {
+    const { jobDetails, workerIds, workerNames } = req.body;
+
+    if (!jobDetails || !jobDetails.role_title) {
+      return res.status(400).json({ error: "Missing jobDetails with role_title" });
+    }
+    if (!workerIds || !Array.isArray(workerIds) || workerIds.length === 0) {
+      return res.status(400).json({ error: "Missing workerIds array" });
+    }
+
+    if (!process.env.WORKSOME_API_TOKEN) {
+      return res.json({
+        job_id: null,
+        job_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
+        status: "not_connected",
+        message: "Worksome API not configured",
+      });
+    }
+
+    const result = await worksome.createJobAndInvite(jobDetails, workerIds, workerNames || {});
+    res.json(result);
+  } catch (err) {
+    console.error("[Worksome] Invite error:", err.message);
+    res.status(500).json({ error: "Could not create the job or send invites. Please try again." });
   }
 });
 
 // ─── GitHub Talent Discovery ─────────────────────────
 
 // In-memory shortlist store (per-session, not persisted)
-const shortlists = new Map(); // sessionId → ExternalTalentLead[]
+const shortlists = new Map();          // sessionId → ExternalTalentLead[]
+const shortlistTimestamps = new Map(); // sessionId → last active timestamp
+const SHORTLIST_TTL = 2 * 60 * 60 * 1000; // 2 hours
+
+function touchShortlist(sessionId) {
+  shortlistTimestamps.set(sessionId, Date.now());
+}
+
+// Evict stale shortlists every 10 minutes
+setInterval(() => {
+  const cutoff = Date.now() - SHORTLIST_TTL;
+  for (const [sessionId, ts] of shortlistTimestamps) {
+    if (ts < cutoff) {
+      shortlists.delete(sessionId);
+      shortlistTimestamps.delete(sessionId);
+    }
+  }
+}, 600_000);
 
 app.get("/api/github/search", async (req, res) => {
   try {
@@ -361,12 +524,16 @@ app.get("/api/github/search", async (req, res) => {
   } catch (err) {
     console.error("[GitHub] Search error:", err.message);
     const isRateLimit = err.message.includes("rate limit");
-    res.status(isRateLimit ? 429 : 500).json({ error: err.message, leads: [] });
+    res.status(isRateLimit ? 429 : 500).json({
+      error: isRateLimit ? "GitHub rate limit reached — try again in a few minutes" : "GitHub search failed",
+      leads: [],
+    });
   }
 });
 
 app.get("/api/github/shortlist", (req, res) => {
   const sessionId = req.query.sessionId || "default";
+  touchShortlist(sessionId);
   const list = shortlists.get(sessionId) || [];
   res.json({ shortlist: list, count: list.length });
 });
@@ -377,6 +544,7 @@ app.post("/api/github/shortlist", (req, res) => {
     return res.status(400).json({ error: "Missing lead data" });
   }
 
+  touchShortlist(sessionId);
   if (!shortlists.has(sessionId)) shortlists.set(sessionId, []);
   const list = shortlists.get(sessionId);
 
@@ -398,6 +566,7 @@ app.post("/api/github/invite", (req, res) => {
   }
 
   // Find in shortlist
+  touchShortlist(sessionId);
   const list = shortlists.get(sessionId) || [];
   const lead = list.find(l => l.githubLogin === githubLogin);
 
@@ -435,129 +604,66 @@ ${senderName || "The hiring team"}`;
   });
 });
 
-// ─── Worksome introspection (temporary — discover available fields) ──
-app.get("/api/worksome/introspect", async (req, res) => {
-  try {
-    const fields = await worksome.introspectWorkerFields();
-    res.json({ fields });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+// ─── Worksome webhooks (lifecycle tracking) ───────────
+// Worksome signs each request with a shared secret; the signature arrives
+// in the `Signature` header. We verify HMAC-SHA256 over the raw body —
+// confirm the exact scheme with Worksome when registering the endpoint.
+let slackNotify = null; // set when the Slack bot connects (see below)
+
+function verifyWorksomeSignature(req) {
+  const secret = process.env.WORKSOME_WEBHOOK_SECRET;
+  if (!secret) return false;
+  const provided = String(req.headers["signature"] || "");
+  const expected = crypto.createHmac("sha256", secret).update(req.rawBody || Buffer.alloc(0)).digest("hex");
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+app.post("/api/webhooks/worksome", (req, res) => {
+  if (!process.env.WORKSOME_WEBHOOK_SECRET) {
+    return res.status(503).json({ error: "Webhooks not configured" });
   }
+  if (!verifyWorksomeSignature(req)) {
+    console.warn("[Webhook] Rejected request with bad/missing signature from", req.ip);
+    return res.status(401).json({ error: "Invalid signature" });
+  }
+
+  const { event, data } = req.body || {};
+  if (!event) return res.status(400).json({ error: "Missing event" });
+
+  // hireId is the stable engagement reference (survives contract revisions)
+  const record = webhookLog.append({
+    type: "worksome_webhook",
+    event,
+    hireId: data?.contract?.hireId || null,
+    hireStatus: data?.contract?.hireStatus || null,
+    contractId: data?.contract?.id || null,
+    workerName: data?.worker?.name || null,
+    workerExternalId: data?.worker?.externalIdentifier || null,
+    startDate: data?.contract?.startDate || null,
+    endDate: data?.contract?.endDate || null,
+  });
+  console.log(`[Webhook] ${event} (hire: ${record.hireId || "?"}, status: ${record.hireStatus || "?"})`);
+
+  // Notify Slack channel on key lifecycle moments (optional)
+  if (slackNotify && process.env.SLACK_NOTIFY_CHANNEL) {
+    const messages = {
+      contractAccepted: `✅ Contract signed${record.workerName ? ` with *${record.workerName}*` : ""}${record.startDate ? ` — starts ${record.startDate}` : ""}`,
+      hireCancelled: `⚠️ A hire was cancelled${record.workerName ? ` (*${record.workerName}*)` : ""}`,
+      hireTerminated: `⚠️ An engagement was terminated early${record.workerName ? ` (*${record.workerName}*)` : ""}`,
+      hireEnded: `🏁 An engagement ended${record.workerName ? ` (*${record.workerName}*)` : ""}`,
+    };
+    const msg = messages[event];
+    if (msg) slackNotify(msg).catch(err => console.warn("[Webhook] Slack notify failed:", err.message));
+  }
+
+  res.json({ received: true });
 });
 
-// ─── Debug notes on TrustedContact (temporary) ──────────
-app.get("/api/worksome/debug-notes", async (req, res) => {
-  try {
-    // Step 1: introspect TrustedContact fields to find notes-related ones
-    const introspectQuery = `{
-      __type(name: "TrustedContact") {
-        fields {
-          name
-          type { name kind ofType { name kind ofType { name } } }
-        }
-      }
-    }`;
-    const introData = await worksome.graphqlRaw(introspectQuery);
-    const tcFields = introData.__type?.fields || [];
-    const noteRelated = tcFields.filter(f =>
-      f.name.toLowerCase().includes('note') ||
-      f.name.toLowerCase().includes('comment') ||
-      f.name.toLowerCase().includes('remark')
-    );
-
-    // Step 2: get first trusted contact with notes field
-    const tcQuery = `{
-      trustedContacts(first: 1) {
-        data {
-          id
-          notes { data { id } }
-        }
-      }
-    }`;
-    let tcResult;
-    try {
-      tcResult = await worksome.graphqlRaw(tcQuery);
-    } catch(e) {
-      tcResult = { error: e.message };
-    }
-
-    // Step 3: check if Note type exists and what fields it has
-    const noteTypeQuery = `{
-      __type(name: "Note") {
-        fields {
-          name
-          type { name kind ofType { name kind ofType { name } } }
-        }
-      }
-    }`;
-    let noteType;
-    try {
-      noteType = await worksome.graphqlRaw(noteTypeQuery);
-    } catch(e) {
-      noteType = { error: e.message };
-    }
-
-    // Step 4: Get accountId for field-level args
-    let accountId;
-    try {
-      const acctData = await worksome.graphqlRaw(`{ accounts { id name } }`);
-      accountId = acctData.accounts?.[0]?.id;
-    } catch(e) { accountId = null; }
-    const acctArg = accountId ? `(account: "${accountId}")` : '';
-
-    // Step 5: Test the FIXED rich query (matches searchWorkersBySkills)
-    let richQueryResult;
-    try {
-      const q = `{
-        trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 2) {
-          data {
-            id
-            skills { id name }
-            notes { data { id } }
-            worker {
-              id name firstName lastName email jobTitle avatar
-              address { city country { name } }
-              skills { name }
-              dayRate currency isCurrentlyHired${acctArg} totalPaid${acctArg}
-              hires { data { id } }
-            }
-          }
-        }
-      }`;
-      richQueryResult = await worksome.graphqlRaw(q);
-      const first = richQueryResult.trustedContacts?.data?.[0];
-      richQueryResult = {
-        ok: true,
-        count: richQueryResult.trustedContacts?.data?.length,
-        query_used: q.substring(0, 100) + '...',
-        sample: first ? {
-          id: first.id,
-          notes: first.notes,
-          worker_name: first.worker?.name,
-          avatar: first.worker?.avatar ? 'present' : 'none',
-          dayRate: first.worker?.dayRate,
-          currency: first.worker?.currency,
-          location: first.worker?.address,
-          isCurrentlyHired: first.worker?.isCurrentlyHired,
-          totalPaid: first.worker?.totalPaid,
-          hires: first.worker?.hires,
-        } : null,
-      };
-    } catch(e) {
-      richQueryResult = { ok: false, error: e.message };
-    }
-
-    res.json({
-      accountId,
-      allTcFields: tcFields.map(f => f.name),
-      noteRelatedFields: noteRelated,
-      sampleTcWithNotes: tcResult,
-      noteType: noteType?.__type?.fields?.map(f => f.name) || noteType,
-      richQueryTest: richQueryResult,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// Recent lifecycle events (drives future funnel UI)
+app.get("/api/webhooks/events", (req, res) => {
+  res.json({ events: webhookLog.recent(50) });
 });
 
 // ─── Health check ─────────────────────────────────────
@@ -584,12 +690,19 @@ if (process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN) {
 
   const slack = new SlackApp({
     token: process.env.SLACK_BOT_TOKEN,
-    signingSecret: process.env.SLACK_SIGNING_SECRET,
-    socketMode: true,
+    socketMode: true, // socket mode — no signing secret needed (no public HTTP endpoint)
     appToken: process.env.SLACK_APP_TOKEN,
   });
 
-  slackBot.register(slack, anthropic);
+  slackBot.register(slack, gemini, auditLog);
+
+  // Expose a notifier for webhook lifecycle messages
+  if (process.env.SLACK_NOTIFY_CHANNEL) {
+    slackNotify = (text) => slack.client.chat.postMessage({
+      channel: process.env.SLACK_NOTIFY_CHANNEL,
+      text,
+    });
+  }
 
   slack.start().then(() => {
     console.log("⚡ Slack bot connected");

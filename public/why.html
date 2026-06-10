@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Front Door — You can't classify what you haven't hired yet</title>
+<meta name="description" content="Front Door routes workforce requests to the right channel in seconds. Classification happens where the data is — at engagement creation in Worksome.">
+<style>
+  :root {
+    --bg: #f5f6f8; --surface: #ffffff; --border: #e2e5ea;
+    --text: #1a1d23; --text-2: #5f6776; --text-3: #9ba3b0;
+    --accent: #6b3fa0; --accent-bg: #f3eefa; --accent-hover: #5a3488;
+    --green: #059669; --green-bg: #ecfdf5;
+    --red: #dc2626; --red-bg: #fef2f2;
+    --amber: #b45309; --amber-bg: #fef3e2;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius: 6px; --radius-lg: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--surface); color: var(--text); line-height: 1.65; -webkit-font-smoothing: antialiased; }
+
+  /* Nav */
+  .nav { padding: 16px 0; border-bottom: 1px solid var(--border); }
+  .nav-inner { max-width: 900px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; }
+  .nav-logo { font-size: 15px; font-weight: 700; color: var(--accent); text-decoration: none; letter-spacing: -0.3px; }
+  .nav-link { font-size: 13px; color: var(--text-2); text-decoration: none; padding: 6px 14px; border-radius: 6px; transition: all 0.15s; }
+  .nav-link:hover { background: var(--bg); color: var(--text); }
+
+  /* Sections */
+  .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 72px 0; }
+  section + section { border-top: 1px solid var(--border); }
+
+  /* Hero */
+  .hero { padding: 80px 0 72px; }
+  .hero-tag { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); background: var(--accent-bg); padding: 5px 14px; border-radius: 20px; margin-bottom: 20px; letter-spacing: 0.3px; }
+  .hero h1 { font-size: 38px; font-weight: 700; line-height: 1.2; letter-spacing: -0.8px; max-width: 700px; margin-bottom: 20px; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero .subtitle { font-size: 18px; color: var(--text-2); max-width: 600px; line-height: 1.6; }
+
+  /* Stats row */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
+  .stat { background: var(--bg); border-radius: var(--radius-lg); padding: 24px; }
+  .stat-number { font-size: 32px; font-weight: 700; line-height: 1; }
+  .stat-number.red { color: var(--red); }
+  .stat-number.amber { color: var(--amber); }
+  .stat-number.accent { color: var(--accent); }
+  .stat-desc { font-size: 13px; color: var(--text-2); margin-top: 6px; line-height: 1.45; }
+
+  /* Argument section */
+  .argument { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+  .argument-text h2 { font-size: 26px; font-weight: 700; line-height: 1.25; letter-spacing: -0.4px; margin-bottom: 16px; }
+  .argument-text p { font-size: 15px; color: var(--text-2); margin-bottom: 16px; }
+  .argument-visual { background: var(--bg); border-radius: var(--radius-lg); padding: 28px; }
+
+  /* Timeline */
+  .timeline { display: flex; flex-direction: column; gap: 0; }
+  .timeline-step { display: flex; gap: 16px; position: relative; padding-bottom: 24px; }
+  .timeline-step:last-child { padding-bottom: 0; }
+  .timeline-line { width: 2px; background: var(--border); position: absolute; left: 15px; top: 32px; bottom: 0; }
+  .timeline-step:last-child .timeline-line { display: none; }
+  .timeline-dot { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: white; flex-shrink: 0; z-index: 1; }
+  .timeline-dot.step1 { background: var(--accent); }
+  .timeline-dot.step2 { background: #2563eb; }
+  .timeline-dot.step3 { background: var(--green); }
+  .timeline-content h4 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .timeline-content p { font-size: 13px; color: var(--text-2); line-height: 1.5; }
+
+  /* Comparison table */
+  .comparison { width: 100%; border-collapse: collapse; margin-top: 32px; font-size: 14px; }
+  .comparison th { text-align: left; padding: 12px 16px; font-weight: 600; font-size: 13px; border-bottom: 2px solid var(--border); }
+  .comparison th:first-child { color: var(--text-3); width: 35%; }
+  .comparison td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .comparison tr:last-child td { border-bottom: none; }
+  .comparison .label { color: var(--text-2); font-size: 13px; font-weight: 500; }
+  .check { color: var(--green); font-weight: 700; }
+  .cross { color: var(--red); font-weight: 500; }
+  .neutral { color: var(--amber); }
+
+  /* Cards grid */
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 32px; }
+  .card { background: var(--bg); border-radius: var(--radius-lg); padding: 24px; }
+  .card h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--text-2); line-height: 1.55; }
+  .card-icon { font-size: 24px; margin-bottom: 12px; display: block; }
+  .card.highlight { background: var(--accent-bg); border: 1px solid #d4c5e8; }
+  .card.highlight h3 { color: var(--accent); }
+
+  /* Quote */
+  .quote-block { background: var(--bg); border-radius: var(--radius-lg); padding: 32px; margin-top: 40px; border-left: 4px solid var(--accent); }
+  .quote-block p { font-size: 17px; font-style: italic; line-height: 1.6; color: var(--text); }
+  .quote-block .attribution { font-size: 13px; color: var(--text-3); margin-top: 12px; font-style: normal; }
+
+  /* CTA */
+  .cta-section { background: var(--accent); color: white; text-align: center; padding: 64px 24px; }
+  .cta-section h2 { font-size: 28px; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.3px; }
+  .cta-section p { font-size: 16px; opacity: 0.85; margin-bottom: 28px; max-width: 500px; margin-left: auto; margin-right: auto; }
+  .cta-btn { display: inline-block; background: white; color: var(--accent); font-family: var(--font); font-size: 15px; font-weight: 600; padding: 12px 32px; border-radius: 8px; text-decoration: none; transition: transform 0.15s, box-shadow 0.15s; }
+  .cta-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+
+  /* Footer */
+  .footer { padding: 32px 0; border-top: 1px solid var(--border); text-align: center; }
+  .footer p { font-size: 12px; color: var(--text-3); }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .hero h1 { font-size: 28px; }
+    .stats { grid-template-columns: 1fr; }
+    .argument { grid-template-columns: 1fr; gap: 32px; }
+    .cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">Front Door</a>
+    <div>
+      <a href="/" class="nav-link">Open Hiring Hub</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <span class="hero-tag">Our approach</span>
+    <h1>You can't classify what you <em>haven't hired yet.</em></h1>
+    <p class="subtitle">Upstream classification tools guess with half the picture. They know the job, but not the worker. Front Door routes requests to the right channel in seconds. Worksome classifies at the point of engagement — when both sides of the equation exist.</p>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-number red">40%</div>
+        <div class="stat-desc">of workforce requests go to the wrong channel, costing enterprises hundreds of millions.</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number amber">7+ weeks</div>
+        <div class="stat-desc">average time from project need to signed Statement of Work.</div>
+      </div>
+      <div class="stat">
+        <div class="stat-number accent">&lt; 60s</div>
+        <div class="stat-desc">for Front Door to route a request to the right channel with the right detail.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="argument">
+      <div class="argument-text">
+        <h2>Classification needs two sides of the equation</h2>
+        <p>Worker classification — IR35, SDC, Scheinselbst&auml;ndigkeit — depends on the characteristics of the job <strong>and</strong> the worker. How they'll be managed. Where they're based. What the contractual terms look like.</p>
+        <p>At the intake stage, you only have one side: the manager's intent and a rough description of the work. You don't know who the worker is yet.</p>
+        <p>Classifying before you have the worker's details means classifying based on assumptions. If that upstream classification turns out wrong, you now have an audit trail that proves you thought about compliance and still got it wrong. That's arguably worse than not having one.</p>
+      </div>
+      <div class="argument-visual">
+        <h4 style="font-size: 13px; font-weight: 600; color: var(--text-3); margin-bottom: 20px; text-transform: uppercase; letter-spacing: 0.5px;">How Front Door works</h4>
+        <div class="timeline">
+          <div class="timeline-step">
+            <div class="timeline-dot step1">1</div>
+            <div class="timeline-line"></div>
+            <div class="timeline-content">
+              <h4>Manager describes the need</h4>
+              <p>Plain language. No procurement jargon. No compliance questionnaire. Just "what do you need done?"</p>
+            </div>
+          </div>
+          <div class="timeline-step">
+            <div class="timeline-dot step2">2</div>
+            <div class="timeline-line"></div>
+            <div class="timeline-content">
+              <h4>Front Door routes to the right channel</h4>
+              <p>Worksome for freelancers and SOW. VMS for contingent and agency. Routed in under 60 seconds with the job details attached.</p>
+            </div>
+          </div>
+          <div class="timeline-step">
+            <div class="timeline-dot step3">3</div>
+            <div class="timeline-content">
+              <h4>Worksome classifies at engagement</h4>
+              <p>When you know the worker, the jurisdiction, the management structure, and the contract terms. Classification with the full picture.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2 style="font-size: 26px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 8px;">Two approaches. One gets it right.</h2>
+    <p style="font-size: 15px; color: var(--text-2); max-width: 600px;">Upstream classification sounds rigorous. In practice, it's guesswork dressed up as compliance.</p>
+
+    <table class="comparison">
+      <thead>
+        <tr>
+          <th></th>
+          <th style="color: var(--accent);">Front Door + Worksome</th>
+          <th>Upstream classification</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="label">When classification happens</td>
+          <td><span class="check">&#10003;</span> At engagement creation — when job + worker details exist</td>
+          <td><span class="cross">&#10007;</span> At intake — before the worker is known</td>
+        </tr>
+        <tr>
+          <td class="label">Data available for classification</td>
+          <td><span class="check">&#10003;</span> Job characteristics, worker location, management structure, contract terms</td>
+          <td><span class="cross">&#10007;</span> Job description and manager's best guess</td>
+        </tr>
+        <tr>
+          <td class="label">Manager experience</td>
+          <td><span class="check">&#10003;</span> Conversational — describe the need in your own words, done in 60 seconds</td>
+          <td><span class="neutral">~</span> Structured questionnaire — every question in sequence, compliance-focused</td>
+        </tr>
+        <tr>
+          <td class="label">Talent discovery</td>
+          <td><span class="check">&#10003;</span> Searches talent pool and external profiles in the same flow</td>
+          <td><span class="cross">&#10007;</span> Routes to a channel only. Finding people is someone else's problem.</td>
+        </tr>
+        <tr>
+          <td class="label">Classification accuracy</td>
+          <td><span class="check">&#10003;</span> Based on real engagement data — defensible</td>
+          <td><span class="cross">&#10007;</span> Based on assumptions — creates false confidence</td>
+        </tr>
+        <tr>
+          <td class="label">Compliance risk</td>
+          <td><span class="check">&#10003;</span> Classification happens with full picture — fewer errors</td>
+          <td><span class="cross">&#10007;</span> Documented upstream decision that may be wrong — audit trail of the wrong answer</td>
+        </tr>
+        <tr>
+          <td class="label">Time to start</td>
+          <td><span class="check">&#10003;</span> Request routed in under a minute. Job created automatically.</td>
+          <td><span class="neutral">~</span> Classification complete, but the job still needs to be created manually downstream.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2 style="font-size: 26px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 8px;">What Front Door actually does</h2>
+    <p style="font-size: 15px; color: var(--text-2); max-width: 600px; margin-bottom: 8px;">A fast, intelligent front door to hiring. Not a compliance gate.</p>
+
+    <div class="cards">
+      <div class="card highlight">
+        <span class="card-icon">&#128172;</span>
+        <h3>Conversational intake</h3>
+        <p>Managers describe what they need in plain language. No forms, no jargon. The AI asks follow-up questions one at a time and skips anything already answered.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#9889;</span>
+        <h3>Intelligent channel routing</h3>
+        <p>Weighted scoring across deliverable type, duration, headcount, and payment model. Routes to Worksome or your VMS with high confidence.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128269;</span>
+        <h3>Built-in talent discovery</h3>
+        <p>Searches your Worksome talent pool for matches by skill and experience. Surfaces external GitHub profiles with relevant public work. All in the same conversation.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128221;</span>
+        <h3>AI project briefs</h3>
+        <p>Generates a professional job description from the manager's words. Extracts skills automatically. The brief travels with the job — no re-keying.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#127919;</span>
+        <h3>Multi-select and invite</h3>
+        <p>Found the right people? Select multiple workers, create the job, and invite them — all from the same interface. One flow, no handoffs.</p>
+      </div>
+      <div class="card">
+        <span class="card-icon">&#128274;</span>
+        <h3>Classification where it belongs</h3>
+        <p>IR35, SDC, and worker status determination happen in Worksome at engagement creation — when you have both the hiring characteristics and the worker characteristics to get it right.</p>
+      </div>
+    </div>
+
+    <div class="quote-block">
+      <p>"The routing decision — 'this goes to Worksome, not your VMS' — isn't a compliance determination. It's a channel selection based on the nature of the work. Classification is a different question, and it needs different data."</p>
+      <div class="attribution">The Front Door philosophy</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2 style="font-size: 26px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 8px;">The compliance argument, honestly</h2>
+    <p style="font-size: 15px; color: var(--text-2); max-width: 700px; margin-bottom: 24px;">Some platforms argue that classification should happen "at the point of origin." It sounds rigorous. Here's why it doesn't hold up.</p>
+
+    <div class="cards">
+      <div class="card">
+        <h3>You're classifying with assumptions</h3>
+        <p>At intake, you know the work but not the worker. The manager says "6-month project, one person, deliverable-based." Looks like SOW. But if the actual worker ends up being managed day-to-day on-site, that upstream classification is wrong — and now there's documentation proving you assessed it and still got it wrong.</p>
+      </div>
+      <div class="card">
+        <h3>A compliance file isn't compliance</h3>
+        <p>A timestamped PDF of an intake questionnaire looks official. But if the classification was made without knowing the worker's circumstances, jurisdiction-specific details, and actual management structure, the document records a guess — not a determination.</p>
+      </div>
+      <div class="card">
+        <h3>Determinism doesn't mean accuracy</h3>
+        <p>Getting the same wrong answer every time isn't a feature. Deterministic routing from incomplete data just means you're systematically wrong in a reproducible way.</p>
+      </div>
+      <div class="card">
+        <h3>The right moment to classify</h3>
+        <p>Classification belongs at engagement creation — when you know the job, the worker, the jurisdiction, the management structure, and the contractual terms. That's what Worksome does. And that's why Front Door doesn't try to do it upstream.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="cta-section">
+  <h2>Ready to open the front door?</h2>
+  <p>Get requests to the right channel in 60 seconds. Let classification happen where it should.</p>
+  <a href="/" class="cta-btn">Try the Hiring Hub &rarr;</a>
+</div>
+
+<footer class="footer">
+  <div class="container">
+    <p>&copy; 2026 Front Door by Worksome. Route fast. Classify right.</p>
+  </div>
+</footer>
+
+</body>
+</html>

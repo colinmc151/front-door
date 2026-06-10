@@ -75,7 +75,7 @@ async function searchWorkers(name) {
   const accountFilter = accountId ? `, accounts: ["${accountId}"]` : '';
   const query = `
     query SearchWorkers($search: String!) {
-      trustedContacts(search: $search${accountFilter}, first: 5) {
+      trustedContacts(search: $search${accountFilter}, first: 3) {
         data {
           id
           worker {
@@ -193,8 +193,17 @@ function mapTrustedContact(tc, richProfile = false) {
     totalPaid: w.totalPaid || 0,
     notesCount: (tc.notes?.data || []).length,
     hiresCount: (w.hires?.data || []).length,
-    _debug_notes_raw: tc.notes,
-    _debug_hires_raw: w.hires,
+    hires: (w.hires?.data || []).map(h => ({
+      id: h.id,
+      status: h.status,
+      startDate: h.startDate,
+      endDate: h.endDate,
+      rate: h.rate,
+      rateType: h.rateType,
+      currency: h.currency,
+      contractType: h.contractTypeLabel,
+      tenure: h.tenure,
+    })),
     source: 'worksome',
     richProfile,
   };
@@ -220,7 +229,7 @@ async function searchWorkersBySkills(skillNames) {
   const acctArg = accountId ? `(account: "${accountId}")` : '';
   const richQuery = `
     query SearchBySkills($skills: [ID!]) {
-      trustedContacts(skills: $skills${accountFilter}, first: 10) {
+      trustedContacts(skills: $skills${accountFilter}, first: 3) {
         data {
           id
           skills { id name }
@@ -239,7 +248,7 @@ async function searchWorkersBySkills(skillNames) {
             currency
             isCurrentlyHired${acctArg}
             totalPaid${acctArg}
-            hires { data { id } }
+            hires { data { id status startDate endDate rate rateType currency contractTypeLabel tenure } }
           }
         }
       }
@@ -249,7 +258,7 @@ async function searchWorkersBySkills(skillNames) {
   // Fallback query — basic fields only (in case rich fields aren't supported)
   const basicQuery = `
     query SearchBySkills($skills: [ID!]) {
-      trustedContacts(skills: $skills${accountFilter}, first: 10) {
+      trustedContacts(skills: $skills${accountFilter}, first: 3) {
         data {
           id
           skills { id name }
@@ -292,7 +301,7 @@ async function searchWorkersBySkills(skillNames) {
       try {
         const allQuery = `
           query AllContacts {
-            trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 10) {
+            trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 3) {
               data {
                 id
                 skills { id name }
@@ -302,7 +311,7 @@ async function searchWorkersBySkills(skillNames) {
                   address { city country { name } }
                   skills { name }
                   dayRate currency isCurrentlyHired${acctArg} totalPaid${acctArg}
-                  hires { data { id } }
+                  hires { data { id status startDate endDate rate rateType currency contractTypeLabel tenure } }
                 }
               }
             }
@@ -315,7 +324,7 @@ async function searchWorkersBySkills(skillNames) {
           // Fallback to basic fields
           const allBasicQuery = `
             query AllContacts {
-              trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 10) {
+              trustedContacts(${accountId ? `accounts: ["${accountId}"], ` : ''}first: 3) {
                 data {
                   id
                   skills { id name }
@@ -344,30 +353,136 @@ async function searchWorkersBySkills(skillNames) {
   }
 }
 
-// ─── Introspect type fields ────────────────────────────
-async function introspectWorkerFields() {
+// ─── Schema-adaptive input building ─────────────────────────
+// The exact input fields vary between Worksome environments. We introspect
+// the input type once (cached) and only send fields the schema accepts, so
+// fast-track mutations degrade gracefully instead of erroring on unknowns.
+const _inputFieldCache = new Map();
+
+async function getInputFields(typeName) {
+  if (_inputFieldCache.has(typeName)) return _inputFieldCache.get(typeName);
   try {
-    const results = {};
-    const types = ['Worker', 'TrustedContact', 'Profile', 'Note', 'Hire', 'Contract', 'Engagement', 'Job', 'HireConnection', 'ContractConnection'];
-    for (const typeName of types) {
-      try {
-        const data = await graphql(`{
-          __type(name: "${typeName}") {
-            fields { name type { name kind ofType { name kind ofType { name } } } }
-          }
-        }`);
-        if (data.__type) {
-          results[typeName] = (data.__type.fields || []).map(f => ({
-            name: f.name,
-            type: f.type.name || (f.type.ofType?.name ? `${f.type.kind}<${f.type.ofType.name}>` : f.type.kind),
-          }));
-        }
-      } catch (e) { /* type doesn't exist, skip */ }
-    }
-    return results;
-  } catch (err) {
-    return { error: err.message };
+    const safe = String(typeName).replace(/[^A-Za-z0-9_]/g, "");
+    const data = await graphql(`{ __type(name: "${safe}") { inputFields { name } } }`);
+    const fields = (data.__type?.inputFields || []).map(f => f.name);
+    _inputFieldCache.set(typeName, fields.length ? fields : null);
+  } catch {
+    _inputFieldCache.set(typeName, null); // introspection unavailable — send candidates as-is
   }
+  return _inputFieldCache.get(typeName);
+}
+
+// Drop undefined values; if schema fields are known, drop unknown keys too.
+function filterInput(candidate, schemaFields) {
+  const out = {};
+  for (const [k, v] of Object.entries(candidate)) {
+    if (v === undefined) continue;
+    if (schemaFields && !schemaFields.includes(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+// ─── Fast track: pre-invite a new worker to the talent pool ──
+// externalIdentifier ties the Worksome worker back to the Front Door intake.
+function buildTrustedContactCandidate(routeResult, accountId) {
+  return {
+    firstName: routeResult.worker_first_name || undefined,
+    lastName: routeResult.worker_last_name || undefined,
+    email: routeResult.worker_email || undefined,
+    externalIdentifier: routeResult._intakeId ? `frontdoor:${routeResult._intakeId}` : undefined,
+    // Account linkage — field name differs by schema; introspection picks the real one
+    account: accountId || undefined,
+    accounts: accountId ? [accountId] : undefined,
+    company: accountId || undefined,
+  };
+}
+
+async function createTrustedContact(routeResult) {
+  const accountId = await getAccountId();
+  const fields = await getInputFields("CreateTrustedContactInput");
+  const input = filterInput(buildTrustedContactCandidate(routeResult, accountId), fields);
+
+  if (!input.email) throw new Error("createTrustedContact requires an email");
+
+  const data = await graphql(`
+    mutation CreateTrustedContact($input: CreateTrustedContactInput!) {
+      createTrustedContact(input: $input) { id }
+    }
+  `, { input });
+  return data.createTrustedContact;
+}
+
+// ─── Fast track: draft hire for a known worker ───────────────
+// Draft hires must still be completed in the Worksome UI (compliance,
+// contract) — this just saves the manager from re-finding the worker.
+function buildDraftHireCandidate(jobId, workerId) {
+  return { job: jobId, worker: workerId, jobId, workerId };
+}
+
+async function createDraftHire(jobId, workerId) {
+  // Input type name varies; try the documented one first
+  let fields = await getInputFields("HireInput");
+  if (!fields) fields = await getInputFields("CreateDraftHireInput");
+  const input = filterInput(buildDraftHireCandidate(jobId, workerId), fields);
+
+  const data = await graphql(`
+    mutation CreateDraftHire($input: HireInput!) {
+      createDraftHire(input: $input) { id status }
+    }
+  `, { input });
+  return data.createDraftHire;
+}
+
+// ─── Fast track: propose a worker as a job candidate ─────────
+// Used as a fallback when shareHire isn't available/permitted.
+function buildJobCandidateCandidate(jobId, workerId) {
+  return { job: jobId, worker: workerId, jobId, workerId };
+}
+
+async function createJobCandidate(jobId, workerId) {
+  const fields = await getInputFields("CreateJobCandidateInput");
+  const input = filterInput(buildJobCandidateCandidate(jobId, workerId), fields);
+
+  const data = await graphql(`
+    mutation CreateJobCandidate($input: CreateJobCandidateInput!) {
+      createJobCandidate(input: $input) { id status }
+    }
+  `, { input });
+  return data.createJobCandidate;
+}
+
+// ─── Fast track: milestone scaffold for fixed-price work ─────
+// Builds a single "Project delivery" milestone from the intake data; the
+// manager refines amounts/dates in the Worksome UI.
+function buildMilestonesCandidate(routeResult, { jobId, hireId, now } = {}) {
+  const { durationToMonths, parseAmount } = require("./approval");
+  const start = now ? new Date(now) : new Date();
+  const months = durationToMonths(routeResult.duration);
+  const dueDate = months
+    ? new Date(start.getTime() + months * 30 * 86400000).toISOString().slice(0, 10)
+    : null;
+  return {
+    job: jobId || undefined,
+    hire: hireId || undefined,
+    milestones: [{
+      title: `Project delivery — ${routeResult.role_title || "Role"}`,
+      amount: parseAmount(routeResult.budget) || undefined,
+      dueDate: dueDate || undefined,
+    }],
+  };
+}
+
+async function createMilestones(routeResult, refs) {
+  const fields = await getInputFields("CreateMilestonesInput");
+  const input = filterInput(buildMilestonesCandidate(routeResult, refs), fields);
+
+  const data = await graphql(`
+    mutation CreateMilestones($input: CreateMilestonesInput!) {
+      createMilestones(input: $input) { id }
+    }
+  `, { input });
+  return data.createMilestones;
 }
 
 // ─── Step 1: Create a job ───────────────────────────────────
@@ -393,10 +508,10 @@ async function createJob(routeResult) {
     input.company = accountId;
   }
 
-  // Add skills if available
-  if (routeResult.skills && routeResult.skills.length > 0) {
-    input.skills = routeResult.skills;
-  }
+  // Skills is required by the API
+  input.skills = (routeResult.skills && routeResult.skills.length > 0)
+    ? routeResult.skills
+    : ["General"];
 
   const data = await graphql(query, { input });
   return data.createJob;
@@ -464,16 +579,36 @@ function buildWorksomeUrl(routeResult, jobId) {
 }
 
 // ─── Main handoff function ──────────────────────────────────
-// Routes to the right Worksome page and optionally creates a job
+// Routes to the right Worksome page and optionally creates a job.
+// Fast tracks (opt-in via env until verified against the live sandbox):
+//   FAST_TRACK_INVITE=1      — new worker (A2): pre-create the trusted contact
+//   FAST_TRACK_DRAFT_HIRE=1  — known worker: pre-create job + draft hire
 async function handoff(routeResult) {
   console.log(`[Worksome] Handoff: ${routeResult.role_title} (known_worker: ${routeResult.known_worker}, worker_id: ${routeResult.worker_id || 'none'})`);
 
   let job = null;
   let updatedJob = null;
+  let invitedContact = null;
+  let draftHire = null;
+
+  const isNewWorker = routeResult.worker_found === false && routeResult.worker_email;
+  const isKnownWorker = routeResult.known_worker && routeResult.worker_id && routeResult.worker_found !== false;
+
+  // Fast track: pre-invite a brand-new worker into the talent pool
+  if (isNewWorker && process.env.FAST_TRACK_INVITE === "1") {
+    try {
+      invitedContact = await createTrustedContact(routeResult);
+      console.log(`[Worksome] Trusted contact created: ${invitedContact.id} (${routeResult.worker_email})`);
+    } catch (err) {
+      console.warn(`[Worksome] createTrustedContact failed (non-fatal): ${err.message}`);
+    }
+  }
 
   // For known workers found in the pool, the hire page handles job creation
-  // For discovery flow or new workers, create the job via API
-  const skipJobCreation = routeResult.known_worker && routeResult.worker_id && routeResult.worker_found !== false;
+  // (unless the draft-hire fast track is enabled). For discovery flow or
+  // new workers, create the job via API.
+  const fastTrackDraftHire = isKnownWorker && process.env.FAST_TRACK_DRAFT_HIRE === "1";
+  const skipJobCreation = isKnownWorker && !fastTrackDraftHire;
 
   if (!skipJobCreation) {
     try {
@@ -489,6 +624,28 @@ async function handoff(routeResult) {
         console.warn(`[Worksome] Job update failed (non-fatal): ${err.message}`);
         updatedJob = job;
       }
+
+      // Fast track: link the known worker via a draft hire (completed in UI)
+      if (fastTrackDraftHire && (updatedJob?.id || job?.id)) {
+        try {
+          draftHire = await createDraftHire(updatedJob?.id || job?.id, routeResult.worker_id);
+          console.log(`[Worksome] Draft hire created: ${draftHire.id}`);
+        } catch (err) {
+          console.warn(`[Worksome] createDraftHire failed (non-fatal): ${err.message}`);
+        }
+      }
+
+      // Fast track: scaffold a milestone for fixed-price engagements
+      if (process.env.FAST_TRACK_MILESTONES === "1"
+          && ["milestone", "fixed"].includes(routeResult.payment_model)
+          && (updatedJob?.id || job?.id)) {
+        try {
+          const ms = await createMilestones(routeResult, { jobId: updatedJob?.id || job?.id, hireId: draftHire?.id });
+          console.log(`[Worksome] Milestone scaffold created`, ms?.id || "");
+        } catch (err) {
+          console.warn(`[Worksome] createMilestones failed (non-fatal): ${err.message}`);
+        }
+      }
     } catch (err) {
       console.warn(`[Worksome] Job creation failed (non-fatal): ${err.message}`);
     }
@@ -501,7 +658,7 @@ async function handoff(routeResult) {
   // Build the URL based on context
   let jobUrl;
   if (routeResult.worker_found === false) {
-    // New worker — send manager to trusted contacts to invite them
+    // New worker — send manager to trusted contacts (already invited if fast-tracked)
     jobUrl = `${WORKSOME_BASE_URL}/contacts`;
   } else if (routeResult.worker_id) {
     jobUrl = `${WORKSOME_BASE_URL}/profile/${routeResult.worker_id}/hire`;
@@ -512,11 +669,98 @@ async function handoff(routeResult) {
   return {
     job_id: jobId,
     job_url: jobUrl,
-    status: updatedJob?.status || job?.status || "routed",
+    status: draftHire ? "draft_hire_created" : (updatedJob?.status || job?.status || "routed"),
     title: routeResult.role_title,
-    worker_invited: false,
+    worker_invited: !!invitedContact,
+    contact_id: invitedContact?.id || null,
+    draft_hire_id: draftHire?.id || null,
     worker_name: routeResult.worker_name || null,
     worker_id: routeResult.worker_id || null,
+  };
+}
+
+// ─── Create job and invite multiple workers ─────────────────
+async function createJobAndInvite(jobDetails, workerIds, workerNames = {}) {
+  console.log(`[Worksome] Creating job "${jobDetails.role_title}" and inviting ${workerIds.length} workers`);
+
+  // Step 1: Create the job
+  const job = await createJob(jobDetails);
+  console.log(`[Worksome] Job created: ${job.id}`);
+
+  // Step 2: Update with full details
+  let updatedJob = job;
+  try {
+    updatedJob = await updateJob(job.id, jobDetails);
+    console.log(`[Worksome] Job updated with details`);
+  } catch (err) {
+    console.warn(`[Worksome] Job update failed (non-fatal): ${err.message}`);
+  }
+
+  // Step 3: Try to invite each worker to the job via createHire mutation
+  const inviteResults = [];
+  for (const workerId of workerIds) {
+    try {
+      const hireData = await graphql(`
+        mutation ShareHire($input: ShareHireInput!) {
+          shareHire(input: $input) {
+            id
+            status
+            worker { name }
+          }
+        }
+      `, {
+        input: {
+          job: updatedJob.id,
+          worker: workerId,
+        }
+      });
+      inviteResults.push({
+        workerId,
+        status: 'invited',
+        hireId: hireData.shareHire?.id,
+        workerName: hireData.shareHire?.worker?.name || workerNames[workerId] || workerId,
+      });
+      console.log(`[Worksome] Worker ${workerId} invited (hire: ${hireData.shareHire?.id})`);
+    } catch (err) {
+      console.warn(`[Worksome] shareHire failed for ${workerId}: ${err.message}`);
+      // Fallback 1: propose them as a job candidate instead
+      try {
+        const candidate = await createJobCandidate(updatedJob.id, workerId);
+        inviteResults.push({
+          workerId,
+          workerName: workerNames[workerId] || workerId,
+          status: 'proposed',
+          candidateId: candidate?.id || null,
+        });
+        console.log(`[Worksome] Worker ${workerId} proposed as job candidate (${candidate?.id})`);
+        continue;
+      } catch (err2) {
+        console.warn(`[Worksome] createJobCandidate also failed for ${workerId}: ${err2.message}`);
+      }
+      // Fallback 2: provide a direct hire link instead
+      inviteResults.push({
+        workerId,
+        workerName: workerNames[workerId] || workerId,
+        status: 'link_only',
+        hireUrl: `${WORKSOME_BASE_URL}/profile/${workerId}/hire`,
+        error: err.message,
+      });
+    }
+  }
+
+  // Link to the worker's hire page if single selection, otherwise contracts list
+  const jobUrl = workerIds.length === 1
+    ? `${WORKSOME_BASE_URL}/profile/${workerIds[0]}/hire`
+    : `${WORKSOME_BASE_URL}/profiles/contracts`;
+
+  return {
+    job_id: updatedJob.id,
+    job_title: jobDetails.role_title,
+    job_url: jobUrl,
+    workers_invited: inviteResults.filter(r => r.status === 'invited').length,
+    workers_proposed: inviteResults.filter(r => r.status === 'proposed').length,
+    workers_link_only: inviteResults.filter(r => r.status === 'link_only').length,
+    results: inviteResults,
   };
 }
 
@@ -530,4 +774,9 @@ async function healthCheck() {
   }
 }
 
-module.exports = { handoff, healthCheck, searchWorkers, searchWorkersBySkills, introspectWorkerFields, graphqlRaw: graphql };
+module.exports = {
+  handoff, healthCheck, searchWorkers, searchWorkersBySkills, createJobAndInvite,
+  createTrustedContact, createDraftHire, createJobCandidate, createMilestones,
+  // exported for unit tests
+  buildTrustedContactCandidate, buildDraftHireCandidate, buildJobCandidateCandidate, buildMilestonesCandidate, filterInput,
+};
