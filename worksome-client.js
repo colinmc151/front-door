@@ -784,8 +784,29 @@ async function healthCheck() {
   }
 }
 
+// ─── Optional talent fixtures ─────────────────────────
+// When TALENT_FIXTURES is set (see talent-fixtures.js), fixture contacts are
+// merged ahead of live API results so demo deployments whose token cannot
+// see the target account still return its known talent. No-op otherwise.
+const fixtures = require("./talent-fixtures");
+
+async function searchWorkersWithFixtures(name) {
+  const fixtureMatches = fixtures.searchByName(name);
+  const apiResults = await searchWorkers(name);
+  return fixtures.enabled() ? fixtures.merge(fixtureMatches, apiResults) : apiResults;
+}
+
+async function searchWorkersBySkillsWithFixtures(skillNames) {
+  const fixtureMatches = fixtures.searchBySkills(skillNames);
+  const result = await searchWorkersBySkills(skillNames);
+  if (!fixtures.enabled()) return result;
+  return { ...result, workers: fixtures.merge(fixtureMatches, result.workers) };
+}
+
 module.exports = {
-  handoff, healthCheck, searchWorkers, searchWorkersBySkills, createJobAndInvite,
+  handoff, healthCheck, createJobAndInvite,
+  searchWorkers: searchWorkersWithFixtures,
+  searchWorkersBySkills: searchWorkersBySkillsWithFixtures,
   createTrustedContact, createDraftHire, createJobCandidate, createMilestones,
   // exported for unit tests
   buildTrustedContactCandidate, buildDraftHireCandidate, buildJobCandidateCandidate, buildMilestonesCandidate, filterInput,
