@@ -528,7 +528,7 @@ function LeftPanel({
       alignItems: 'center',
       justifyContent: 'center',
       fontSize: 15,
-      color: '#18181b',
+      color: config.branding.primary_color,
       fontWeight: 800
     }
   }, config.branding.logo_text), /*#__PURE__*/React.createElement("span", {
@@ -1416,7 +1416,7 @@ function ChatPage({
     style: {
       width: 48,
       height: 48,
-      background: '#1a1d23',
+      background: config.branding.primary_color,
       borderRadius: 12,
       display: 'flex',
       alignItems: 'center',
@@ -1444,7 +1444,7 @@ function ChatPage({
     style: {
       fontSize: 14,
       padding: '11px 28px',
-      background: '#1a1d23',
+      background: config.branding.primary_color,
       color: 'white',
       border: 'none',
       borderRadius: 8
@@ -1469,7 +1469,7 @@ function ChatPage({
     style: {
       width: 26,
       height: 26,
-      background: '#1a1d23',
+      background: config.branding.primary_color,
       borderRadius: 7,
       display: 'flex',
       alignItems: 'center',
@@ -1526,7 +1526,7 @@ function ChatPage({
   }, /*#__PURE__*/React.createElement("div", {
     className: "chat-avatar",
     style: {
-      background: m.role === 'assistant' ? '#1a1d23' : '#4a90d9',
+      background: m.role === 'assistant' ? config.branding.primary_color : '#4a90d9',
       width: 28,
       height: 28,
       fontSize: 11
@@ -1543,7 +1543,7 @@ function ChatPage({
   }, /*#__PURE__*/React.createElement("div", {
     className: "chat-avatar",
     style: {
-      background: '#1a1d23',
+      background: config.branding.primary_color,
       width: 28,
       height: 28,
       fontSize: 11

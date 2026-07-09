@@ -466,7 +466,7 @@ function LeftPanel({ config, setPage, onLogoClick }) {
             <img src={config.branding.logo_url} alt={config.client_name} style={{height: 28, objectFit: 'contain'}} />
           ) : (
             <>
-              <div style={{width: 30, height: 30, background: 'white', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: '#18181b', fontWeight: 800}}>
+              <div style={{width: 30, height: 30, background: 'white', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: config.branding.primary_color, fontWeight: 800}}>
                 {config.branding.logo_text}
               </div>
               <span style={{fontSize: 15, fontWeight: 700, color: 'white', letterSpacing: -0.3}}>{config.client_name || 'worksome'}</span>
@@ -967,14 +967,14 @@ function ChatPage({ config, setPage, page }) {
           {!started ? (
             <div className="chat-start" style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 36px'}}>
               <div style={{textAlign: 'center'}}>
-                <div style={{width: 48, height: 48, background: '#1a1d23', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: 'white', fontWeight: 700, margin: '0 auto 16px'}}>
+                <div style={{width: 48, height: 48, background: config.branding.primary_color, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: 'white', fontWeight: 700, margin: '0 auto 16px'}}>
                   {config.branding.logo_text}
                 </div>
                 <h2 style={{fontSize: 20, fontWeight: 700, marginBottom: 8}}>{config.assistant_name}</h2>
                 <p style={{fontSize: 14, color: 'var(--text-2)', marginBottom: 28, lineHeight: 1.6}}>
                   Describe what you need and we'll get you set up with the right team or platform.
                 </p>
-                <button className="btn" style={{fontSize: 14, padding: '11px 28px', background: '#1a1d23', color: 'white', border: 'none', borderRadius: 8}} onClick={startConversation}>
+                <button className="btn" style={{fontSize: 14, padding: '11px 28px', background: config.branding.primary_color, color: 'white', border: 'none', borderRadius: 8}} onClick={startConversation}>
                   Start a new request
                 </button>
               </div>
@@ -984,7 +984,7 @@ function ChatPage({ config, setPage, page }) {
               {/* Chat header */}
               <div style={{padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0}}>
                 <div style={{display: 'flex', alignItems: 'center', gap: 10}}>
-                  <div style={{width: 26, height: 26, background: '#1a1d23', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white', fontWeight: 700, cursor: 'pointer'}} onClick={resetChat}>
+                  <div style={{width: 26, height: 26, background: config.branding.primary_color, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'white', fontWeight: 700, cursor: 'pointer'}} onClick={resetChat}>
                     {config.branding.logo_text}
                   </div>
                   <span style={{fontSize: 13, fontWeight: 600}}>
@@ -1002,7 +1002,7 @@ function ChatPage({ config, setPage, page }) {
               <div ref={chatRef} className="chat-messages" style={{flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12}}>
                 {messages.filter(m => !(m.isStreamingMsg && !m.text)).map((m, i) => (
                   <div key={i} className={`chat-msg ${m.role}`}>
-                    <div className="chat-avatar" style={{background: m.role === 'assistant' ? '#1a1d23' : '#4a90d9', width: 28, height: 28, fontSize: 11}}>
+                    <div className="chat-avatar" style={{background: m.role === 'assistant' ? config.branding.primary_color : '#4a90d9', width: 28, height: 28, fontSize: 11}}>
                       {m.role === 'assistant' ? config.branding.logo_text : 'You'}
                     </div>
                     <div>
@@ -1014,7 +1014,7 @@ function ChatPage({ config, setPage, page }) {
 
                 {loading && !messages.some(m => m.isStreamingMsg && m.text) && (
                   <div className="chat-msg assistant">
-                    <div className="chat-avatar" style={{background: '#1a1d23', width: 28, height: 28, fontSize: 11}}>{config.branding.logo_text}</div>
+                    <div className="chat-avatar" style={{background: config.branding.primary_color, width: 28, height: 28, fontSize: 11}}>{config.branding.logo_text}</div>
                     <div className="chat-bubble">
                       <span className="typing-dot"></span>{' '}
                       <span className="typing-dot"></span>{' '}
