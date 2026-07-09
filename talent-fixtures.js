@@ -60,10 +60,13 @@ function searchBySkills(skillNames) {
   );
 }
 
-// Merge fixtures ahead of API results, deduplicating by lowercased name.
+// Merge: real API results win; fixtures only fill in contacts the API
+// didn't return (deduplicated by lowercased name). Real records carry real
+// worker ids, so downstream deep links (e.g. /profile/<id>/hire) resolve.
 function merge(fixtureMatches, apiResults) {
-  const seen = new Set(fixtureMatches.map((f) => norm(f.name)));
-  return [...fixtureMatches, ...(apiResults || []).filter((w) => !seen.has(norm(w.name)))];
+  const api = apiResults || [];
+  const seen = new Set(api.map((w) => norm(w.name)));
+  return [...api, ...fixtureMatches.filter((f) => !seen.has(norm(f.name)))];
 }
 
 const enabled = () => FIXTURES.length > 0;
