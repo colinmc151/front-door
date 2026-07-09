@@ -7,9 +7,15 @@ const path = require("path");
 const DATA_DIR = path.join(__dirname, "data");
 const CONFIG_PATH = path.join(DATA_DIR, "config.json");
 
+// Env overrides — allow per-deployment defaults so multiple Railway services
+// can share this codebase (documented in .env.example). A saved
+// data/config.json still takes precedence over these defaults.
+const ENV_VMS_NAME = process.env.VMS_NAME || "Beeline";
+const ENV_VMS_URL = process.env.VMS_URL || "https://beeline.com";
+
 const DEFAULTS = {
   client_name: "Worksome",
-  assistant_name: "Worksome Hiring Hub",
+  assistant_name: process.env.ASSISTANT_NAME || "Worksome Hiring Hub",
   branding: {
     logo_text: "W",
     primary_color: "#1a1d23",
@@ -19,9 +25,9 @@ const DEFAULTS = {
     headline: "",
     subheadline: "",
   },
-  vms: { name: "Beeline", url: "https://beeline.com", api_type: "REST" },
-  worksome_url: "https://sandbox.worksome.com/login",
-  worksome_talent_pool_url: "https://sandbox.worksome.com/contacts",
+  vms: { name: ENV_VMS_NAME, url: ENV_VMS_URL, api_type: "REST" },
+  worksome_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
+  worksome_talent_pool_url: process.env.WORKSOME_TALENT_POOL_URL || "https://sandbox.worksome.com/contacts",
   weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
   knockouts: {
     vms: ["agency", "staffing firm", "temp workers", "temps"],
@@ -34,7 +40,7 @@ const DEFAULTS = {
       { title: "Contract and practice must align", body: "The way you work with a contractor must match what the contract says. Do not include contractors in performance reviews, employee benefits, bonus schemes, or equity plans. Do not direct their daily schedule or provide company equipment. If the scope of work materially changes, a status reassessment is triggered automatically in Worksome." },
       { title: "Misclassification risk", body: "Getting classification wrong can result in backdated tax, penalties, and employment claims. In the UK, failure to exercise \"reasonable care\" on IR35 transfers tax liability to your company. In the US, states like California apply strict ABC tests where the worker is presumed to be an employee unless specific conditions are met. Worksome manages this risk — but your working practices need to support the classification." },
       { title: "Long-term engagement reviews", body: "Engagements that run for extended periods are subject to periodic reassessment. The longer a contractor works with you, the higher the risk of employment status drift. Worksome tracks engagement duration and flags reviews automatically. If you need ongoing support beyond 12 months, discuss renewal with your procurement team." },
-      { title: "When to use each channel", body: "Use Worksome for independent contractors, freelancers, and consultants engaged on defined projects or deliverables. Use Beeline for temporary staff augmentation, agency workers, and roles where you manage day-to-day work directly. If in doubt, this intake tool will route you to the right place." },
+      { title: "When to use each channel", body: `Use Worksome for independent contractors, freelancers, and consultants engaged on defined projects or deliverables. Use ${ENV_VMS_NAME} for temporary staff augmentation, agency workers, and roles where you manage day-to-day work directly. If in doubt, this intake tool will route you to the right place.` },
     ],
     guides: [
       { title: "Writing a great project brief", body: "Be specific about deliverables, not just skills. Instead of \"need a designer,\" say \"redesign our checkout flow to improve mobile conversion.\" Include timeline, budget range, and whether the work is remote or on-site. A clear brief leads to better talent matches and faster onboarding." },
