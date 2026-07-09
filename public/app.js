@@ -894,7 +894,7 @@ function LeftPanel({
       color: 'rgba(255,255,255,0.2)',
       zIndex: 1
     }
-  }, "Powered by Front Door"));
+  }, "Powered by Worksome"));
 }
 
 // ══════════════════════════════════════

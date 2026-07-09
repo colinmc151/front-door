@@ -14,16 +14,16 @@ const ENV_VMS_NAME = process.env.VMS_NAME || "Beeline";
 const ENV_VMS_URL = process.env.VMS_URL || "https://beeline.com";
 
 const DEFAULTS = {
-  client_name: "Worksome",
+  client_name: process.env.CLIENT_NAME || "Worksome",
   assistant_name: process.env.ASSISTANT_NAME || "Worksome Hiring Hub",
   branding: {
-    logo_text: "W",
-    primary_color: "#1a1d23",
-    greeting: "Hi! I'm here to help you find the right talent. Let's get started.",
-    logo_url: "",
-    hero_image_url: "",
-    headline: "",
-    subheadline: "",
+    logo_text: process.env.LOGO_TEXT || "W",
+    primary_color: process.env.PRIMARY_COLOR || "#1a1d23",
+    greeting: process.env.GREETING || "Hi! I'm here to help you find the right talent. Let's get started.",
+    logo_url: process.env.LOGO_URL || "",
+    hero_image_url: process.env.HERO_IMAGE_URL || "",
+    headline: process.env.HEADLINE || "",
+    subheadline: process.env.SUBHEADLINE || "",
   },
   vms: { name: ENV_VMS_NAME, url: ENV_VMS_URL, api_type: "REST" },
   worksome_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
