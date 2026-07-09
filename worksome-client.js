@@ -24,8 +24,18 @@ async function getAccountId() {
     const data = await graphql(`{ accounts { id name } }`);
     const accounts = data.accounts || [];
     if (accounts.length > 0) {
-      _cachedAccountId = safeAccountId(accounts[0].id);
-      console.log(`[Worksome] Using account: ${accounts[0].name} (${_cachedAccountId})`);
+      // When the token's user belongs to several accounts, WORKSOME_ACCOUNT_NAME
+      // selects the one to scope queries to (substring match, case-insensitive).
+      const wanted = (process.env.WORKSOME_ACCOUNT_NAME || "").trim().toLowerCase();
+      const match = wanted
+        ? accounts.find((a) => (a.name || "").toLowerCase().includes(wanted))
+        : null;
+      if (wanted && !match) {
+        console.warn(`[Worksome] No account matching "${process.env.WORKSOME_ACCOUNT_NAME}" — available: ${accounts.map(a => a.name).join(", ")}`);
+      }
+      const chosen = match || accounts[0];
+      _cachedAccountId = safeAccountId(chosen.id);
+      console.log(`[Worksome] Using account: ${chosen.name} (${_cachedAccountId})`);
     }
   } catch (err) {
     console.warn(`[Worksome] Failed to fetch accounts: ${err.message}`);
