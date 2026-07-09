@@ -26,6 +26,8 @@ const DEFAULTS = {
     subheadline: process.env.SUBHEADLINE || "",
   },
   vms: { name: ENV_VMS_NAME, url: ENV_VMS_URL, api_type: "REST" },
+  // GitHub external talent discovery (set GITHUB_DISCOVERY=false to disable)
+  github_discovery: !/^(0|false|off)$/i.test(process.env.GITHUB_DISCOVERY || ""),
   worksome_url: process.env.WORKSOME_URL || "https://sandbox.worksome.com/login",
   worksome_talent_pool_url: process.env.WORKSOME_TALENT_POOL_URL || "https://sandbox.worksome.com/contacts",
   weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
@@ -84,6 +86,7 @@ function sanitize(input, current) {
     if ("url" in input.vms) out.vms.url = str(input.vms.url, out.vms.url);
     if ("api_type" in input.vms) out.vms.api_type = str(input.vms.api_type, out.vms.api_type);
   }
+  if ("github_discovery" in input) out.github_discovery = !!input.github_discovery;
   if (input.weights && typeof input.weights === "object") {
     for (const k of Object.keys(DEFAULTS.weights)) {
       if (k in input.weights) out.weights[k] = clampInt(input.weights[k], 0, 5, out.weights[k]);

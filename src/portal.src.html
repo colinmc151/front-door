@@ -184,6 +184,7 @@ const defaultConfig = {
   assistant_name: 'Worksome Hiring Hub',
   branding: { logo_text: 'W', primary_color: '#1a1d23', greeting: "Hi! I'm here to help you find the right talent. Let's get started.", logo_url: '', hero_image_url: '', headline: '', subheadline: '' },
   vms: { name: 'Beeline', url: 'https://beeline.com', api_type: 'REST' },
+  github_discovery: true,
   worksome_url: 'https://sandbox.worksome.com/login',
   worksome_talent_pool_url: 'https://sandbox.worksome.com/contacts',
   weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
@@ -780,15 +781,17 @@ function ChatPage({ config, setPage, page }) {
             // Auto-search talent pool if skills are present and no TALENT_SEARCH marker
             const hasSearchMarker = reply.match(/\[TALENT_SEARCH:/);
             if (!hasSearchMarker && parsed.skills && parsed.skills.length > 0) {
-              // Always trigger GitHub Discovery alongside Worksome search
-              const ghCriteria = {
-                skills: parsed.skills,
-                languages: [],
-                keywords: parsed.skills,
-                location: parsed.location || null,
-                roleTitle: parsed.role_title || ''
-              };
-              setGhDiscovery({ criteria: ghCriteria, sessionId: 'default' });
+              // Trigger GitHub Discovery alongside Worksome search (unless disabled)
+              if (config.github_discovery !== false) {
+                const ghCriteria = {
+                  skills: parsed.skills,
+                  languages: [],
+                  keywords: parsed.skills,
+                  location: parsed.location || null,
+                  roleTitle: parsed.role_title || ''
+                };
+                setGhDiscovery({ criteria: ghCriteria, sessionId: 'default' });
+              }
 
               try {
                 setMessages(prev => [...prev, { role: 'assistant', text: '🔍 Searching your talent pool...', time: new Date(), isSearching: true }]);
@@ -832,16 +835,19 @@ function ChatPage({ config, setPage, page }) {
         const updatedApiMsgs = [...msgsToSend, { role: 'assistant', text: reply }];
         let followUpMsgs;
 
-        // Always trigger GitHub Discovery for external profiles
-        const ghCriteria = {
-          skills: resolved.map(s => s.name),
-          languages: [],
-          keywords: skillsText.split(',').map(s => s.trim()).filter(Boolean),
-          location: null,
-          roleTitle: ''
-        };
-        console.log('[Front Door] Setting ghDiscovery with criteria:', ghCriteria);
-        setGhDiscovery({ criteria: ghCriteria, sessionId: 'default' });
+        // Trigger GitHub Discovery for external profiles (unless disabled)
+        const ghEnabled = config.github_discovery !== false;
+        if (ghEnabled) {
+          const ghCriteria = {
+            skills: resolved.map(s => s.name),
+            languages: [],
+            keywords: skillsText.split(',').map(s => s.trim()).filter(Boolean),
+            location: null,
+            roleTitle: ''
+          };
+          console.log('[Front Door] Setting ghDiscovery with criteria:', ghCriteria);
+          setGhDiscovery({ criteria: ghCriteria, sessionId: 'default' });
+        }
 
         if (workers.length > 0) {
           setFoundWorkers(workers);
@@ -850,12 +856,12 @@ function ChatPage({ config, setPage, page }) {
           ).join('\n');
           followUpMsgs = [
             ...updatedApiMsgs,
-            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers:\n${workerList}\n\nI've also opened a GitHub Discovery panel showing external technical profiles that match.\n\nScore each internal worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason. Mention that you've also found external GitHub profiles they can review in the panel below. Then ask if the manager wants to hire one of the internal matches or explore the external candidates. IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]` }
+            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found these workers:\n${workerList}\n${ghEnabled ? "\nI've also opened a GitHub Discovery panel showing external technical profiles that match.\n" : ""}\nScore each internal worker out of 10 based on how well their skills and title match the project requirements you just described. Present results as a ranked list with name, title, skills, score out of 10, and a brief reason.${ghEnabled ? " Mention that you've also found external GitHub profiles they can review in the panel below. Then ask if the manager wants to hire one of the internal matches or explore the external candidates." : " Then ask if the manager wants to hire one of the internal matches."} IMPORTANT: Include the worker's ID in worker_id in the final JSON if they pick someone.]` }
           ];
         } else {
           followUpMsgs = [
             ...updatedApiMsgs,
-            { role: 'user', text: `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches in the internal pool. I've opened a GitHub Discovery panel showing external technical profiles that match. Tell the manager you didn't find anyone in their Worksome talent pool, but you've found some external GitHub profiles with relevant public work. They can review, shortlist, and draft an invite to bring them onto Worksome. Also offer to set up the role so they can find the right person through other channels. Continue to Path B2 Q3 onward — you already have the project description and skills.]` }
+            { role: 'user', text: ghEnabled ? `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches in the internal pool. I've opened a GitHub Discovery panel showing external technical profiles that match. Tell the manager you didn't find anyone in their Worksome talent pool, but you've found some external GitHub profiles with relevant public work. They can review, shortlist, and draft an invite to bring them onto Worksome. Also offer to set up the role so they can find the right person through other channels. Continue to Path B2 Q3 onward — you already have the project description and skills.]` : `[SYSTEM: Talent pool search for skills "${skillSummary}" found no matches in the internal pool. Tell the manager you didn't find anyone in their Worksome talent pool, and offer to set up the role so they can find the right person. Continue to Path B2 Q3 onward — you already have the project description and skills.]` }
           ];
         }
 
@@ -1043,7 +1049,7 @@ function ChatPage({ config, setPage, page }) {
                 )}
 
                 {/* GitHub Discovery panel — inline after messages */}
-                {ghDiscovery && (
+                {ghDiscovery && config.github_discovery !== false && (
                   <GitHubDiscoveryPanel
                     criteria={ghDiscovery.criteria}
                     sessionId={ghDiscovery.sessionId}
