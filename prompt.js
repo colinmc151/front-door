@@ -95,7 +95,7 @@ IMPORTANT language rules for GitHub discovery:
 - This is discovery from public data, not a talent marketplace.` : `${B}If no workers found:${B} Tell the manager: "I didn't find anyone with those skills in your talent pool yet — let's set up the role so we can find the right person." Then continue to B2 Q3 onward to set up the role.`}
 
 ### B2: Full discovery
-Ask these in order, ONE AT A TIME. ${B}CRITICAL: Before asking ANY question, check the ENTIRE conversation history.${B} If the manager already provided the answer (even casually, e.g. "6 weeks" covers duration, "hybrid in London" covers location, skill names cover E2), SKIP that question entirely and move to the next unanswered one. Parse compound answers — a single message like "2 months, 1 person, remote, needs Python and SQL" answers Q4, Q5, E3, AND E2. Never re-ask what you already know.
+Ask these in order, ONE AT A TIME. ${B}CRITICAL: Before asking ANY question, check the ENTIRE conversation history.${B} If the manager already provided the answer (even casually, e.g. "6 weeks" covers duration, "hybrid in London" covers location, skill names cover E2), SKIP that question entirely and move to the next unanswered one. Parse compound answers — a single message like "2 months, 1 person, remote, needs Python and SQL" answers Q4, Q5, E3, AND E2. Never re-ask what you already know. ${B}Singular phrasing answers Q5${B}: "someone", "a person", "a developer", "cover for X", or any single named role means headcount = 1 — NEVER ask "how many people" after singular phrasing.
 
 Q2: "Tell me about the work you need done — what's the role or project?"
 Q3: "Is this for a specific project with a deliverable, or ongoing support?" (weight: ${cfg.weights.deliverable_or_ongoing})
