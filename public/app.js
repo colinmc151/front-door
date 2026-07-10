@@ -201,7 +201,27 @@ async function callAssistantStream(messages, onDelta) {
 
 // Hide routing JSON / search markers while text is still streaming
 function visibleStreamText(t) {
-  return t.split('```json')[0].split('[TALENT_SEARCH')[0];
+  return t.split('```json')[0].split('[TALENT_SEARCH')[0].split('[OPTIONS')[0];
+}
+
+// Keep the top match; show others only when they score above 30.
+function filterTopMatches(workers) {
+  if (!workers || workers.length === 0) return [];
+  return [workers[0], ...workers.slice(1).filter(w => (w.fitScore || 0) > 30)];
+}
+
+// Parse a trailing [OPTIONS: a | b] marker into clickable quick replies.
+function extractOptions(text) {
+  const m = text.match(/\[OPTIONS:\s*([^\]]+)\]/i);
+  if (!m) return {
+    clean: text,
+    options: null
+  };
+  const options = m[1].split('|').map(s => s.trim()).filter(Boolean).slice(0, 4);
+  return {
+    clean: text.replace(m[0], '').trim(),
+    options: options.length >= 2 ? options : null
+  };
 }
 
 // ══════════════════════════════════════
@@ -918,6 +938,7 @@ function ChatPage({
   const [quickReplies, setQuickReplies] = useState(null);
   const [waitingForWorkerName, setWaitingForWorkerName] = useState(false);
   const [foundWorkers, setFoundWorkers] = useState([]);
+  const [talentCollapsed, setTalentCollapsed] = useState(false);
   const [listening, setListening] = useState(false);
   const [ghDiscovery, setGhDiscovery] = useState(null); // { criteria, sessionId } when active
   const [approvalGate, setApprovalGate] = useState(null); // { action, condition, approved? } when a gate fires
@@ -1035,6 +1056,7 @@ function ChatPage({
       // Inject search results: add an assistant "ack" then a user "system" message to maintain alternating roles
       if (workers.length > 0) {
         setFoundWorkers(workers); // Store for handoff
+        setTalentCollapsed(false);
         const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''} [ID: ${w.id}]`).join('\n');
         msgsToSend = [...allApiMsgs, {
           role: 'assistant',
@@ -1134,10 +1156,11 @@ function ChatPage({
                   isSearching: true
                 }]);
                 const result = await searchTalentPoolBySkills(parsed.skills.join(', '));
-                const workers = result.workers || [];
+                const workers = filterTopMatches(result.workers || []);
                 setMessages(prev => prev.filter(m => !m.isSearching));
                 if (workers.length > 0) {
                   setFoundWorkers(workers);
+                  setTalentCollapsed(false);
                   console.log('[Front Door] Auto talent search found', workers.length, 'workers');
                 }
               } catch (e) {
@@ -1171,7 +1194,7 @@ function ChatPage({
 
         // Search the talent pool by the extracted skills
         const result = await searchTalentPoolBySkills(skillsText);
-        const workers = result.workers || [];
+        const workers = filterTopMatches(result.workers || []);
         const resolved = result.resolvedSkills || [];
         const skillSummary = resolved.map(s => s.name).join(', ') || skillsText;
 
@@ -1203,6 +1226,7 @@ function ChatPage({
         }
         if (workers.length > 0) {
           setFoundWorkers(workers);
+          setTalentCollapsed(false);
           const workerList = workers.map(w => `- ${w.name}${w.title ? ` (${w.title})` : ''}${w.skills && w.skills.length > 0 ? ` | Skills: ${w.skills.join(', ')}` : ''} [ID: ${w.id}]`).join('\n');
           followUpMsgs = [...updatedApiMsgs, {
             role: 'user',
@@ -1264,9 +1288,13 @@ function ChatPage({
             }
           } catch {}
         }
+        const {
+          clean: followUpShown,
+          options: followUpOptions
+        } = extractOptions(followUpClean);
         setMessages(prev => [...prev.filter(m => !m.isSearching), {
           role: 'assistant',
-          text: followUpClean,
+          text: followUpShown,
           time: new Date()
         }]);
         setApiMessages(prev => [...prev, {
@@ -1280,14 +1308,18 @@ function ChatPage({
           text: followUpReply
         }]);
         if (!followUpJson) {
-          const qr = detectQuickReplies(followUpClean);
+          const qr = followUpOptions || detectQuickReplies(followUpShown);
           if (qr) setQuickReplies(qr);
         }
       } else {
         // Normal flow — no talent search marker
+        const {
+          clean: shownReply,
+          options: replyOptions
+        } = extractOptions(cleanReply);
         setMessages(prev => [...prev, {
           role: 'assistant',
-          text: cleanReply,
+          text: shownReply,
           time: new Date()
         }]);
         setApiMessages(prev => [...prev, {
@@ -1295,11 +1327,11 @@ function ChatPage({
           text: reply
         }]);
         if (!jsonMatch) {
-          const qr = detectQuickReplies(cleanReply);
+          const qr = replyOptions || detectQuickReplies(shownReply);
           if (qr) setQuickReplies(qr);
 
           // Detect if the assistant is asking for the worker's name
-          if (isAskingForName(cleanReply)) {
+          if (isAskingForName(shownReply)) {
             setWaitingForWorkerName(true);
           }
         }
@@ -1336,6 +1368,8 @@ function ChatPage({
     if (!text || loading || routeResult) return;
     setInput('');
     setQuickReplies(null);
+    // Fold the talent panel away if the manager moves on without picking anyone
+    if (foundWorkers.length > 0 && !/^i'd like to hire/i.test(text)) setTalentCollapsed(true);
     const newUserMsg = {
       role: 'user',
       text,
@@ -1361,6 +1395,7 @@ function ChatPage({
     setWaitingForWorkerName(false);
     setListening(false);
     setFoundWorkers([]);
+    setTalentCollapsed(false);
     setGhDiscovery(null);
     setApprovalGate(null);
     pendingHandoffRef.current = null;
@@ -1571,7 +1606,24 @@ function ChatPage({
       fontSize: 13,
       color: 'var(--red)'
     }
-  }, error), foundWorkers.length > 0 && /*#__PURE__*/React.createElement(WorksomeTalentPanel, {
+  }, error), foundWorkers.length > 0 && (talentCollapsed ? /*#__PURE__*/React.createElement("div", {
+    onClick: () => setTalentCollapsed(false),
+    style: {
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: '8px 14px',
+      fontSize: 12,
+      color: 'var(--text-2)',
+      cursor: 'pointer',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10
+    }
+  }, "\u25B8"), "Talent pool matches (", foundWorkers.length, ") \u2014 click to show") : /*#__PURE__*/React.createElement(WorksomeTalentPanel, {
     workers: foundWorkers,
     onHire: worker => {
       // Simulate the user selecting this worker
@@ -1579,7 +1631,7 @@ function ChatPage({
     },
     onClose: () => setFoundWorkers([]),
     routeResult: routeResult
-  }), ghDiscovery && config.github_discovery !== false && /*#__PURE__*/React.createElement(GitHubDiscoveryPanel, {
+  })), ghDiscovery && config.github_discovery !== false && /*#__PURE__*/React.createElement(GitHubDiscoveryPanel, {
     criteria: ghDiscovery.criteria,
     sessionId: ghDiscovery.sessionId,
     config: config,

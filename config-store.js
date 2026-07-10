@@ -32,7 +32,12 @@ const DEFAULTS = {
   worksome_talent_pool_url: process.env.WORKSOME_TALENT_POOL_URL || "https://sandbox.worksome.com/contacts",
   weights: { deliverable_or_ongoing: 3, duration: 2, headcount: 2, payment_model: 1, sdc: 1 },
   knockouts: {
-    vms: ["agency", "staffing firm", "temp workers", "temps"],
+    // VMS_KNOCKOUTS_EXTRA: comma-separated terms appended per deployment
+    // (e.g. "maternity cover, paternity cover, sick leave cover")
+    vms: [
+      "agency", "staffing firm", "temp workers", "temps",
+      ...(process.env.VMS_KNOCKOUTS_EXTRA || "").split(",").map((s) => s.trim()).filter(Boolean),
+    ],
     worksome: ["freelancer", "independent consultant", "sow", "statement of work", "fixed bid", "milestone payment"],
   },
   approval_gates: [{ condition: "spend > 100000", action: "procurement_review" }],
