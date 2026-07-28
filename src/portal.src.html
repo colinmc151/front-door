@@ -645,6 +645,7 @@ function ChatPage({ config, setPage, page }) {
   const [listening, setListening] = useState(false);
   const [ghDiscovery, setGhDiscovery] = useState(null); // { criteria, sessionId } when active
   const [approvalGate, setApprovalGate] = useState(null); // { action, condition, approved? } when a gate fires
+  const [complianceGate, setComplianceGate] = useState(null); // { payload } — invite held until the classification question is answered
   const pendingHandoffRef = useRef(null); // handoff payload held until approval
   const chatRef = useRef(null);
   const inputRef = useRef(null);
@@ -665,6 +666,74 @@ function ChatPage({ config, setPage, page }) {
     if (pendingHandoffRef.current) {
       triggerHandoff(pendingHandoffRef.current);
       pendingHandoffRef.current = null;
+    }
+  };
+
+  // ── Compliance gate before job creation ──
+  // The panel's "Create Job & Invite" no longer creates the job directly.
+  // We first ask the classification question (day-to-day management = SDC
+  // signal) in chat, and only create the job on an "independent" answer.
+  const requestCreateJob = (payload) => {
+    setTalentCollapsed(true);
+    setComplianceGate({ payload });
+    const names = Object.values(payload.workerNames || {});
+    const who = names.length === 1 ? names[0] : `these ${names.length} people`;
+    const question = `One last thing before I set this up — will ${who} work independently on the agreed deliverables, or will you be managing their day-to-day work?`;
+    setMessages(prev => [...prev, { role: 'assistant', text: question, time: new Date() }]);
+    setApiMessages(prev => [...prev, { role: 'assistant', text: question }]);
+  };
+
+  const answerComplianceGate = async (independent) => {
+    const gate = complianceGate;
+    if (!gate) return;
+    setComplianceGate(null);
+    const answerText = independent ? "They'll work independently" : "I'll manage their day-to-day work";
+    setMessages(prev => [...prev, { role: 'user', text: answerText, time: new Date() }]);
+
+    if (!independent) {
+      // Day-to-day direction points to a managed engagement — hand back to
+      // the assistant to finish the intake and route to the VMS instead.
+      setFoundWorkers([]);
+      const names = Object.values(gate.payload.workerNames || {}).join(', ');
+      const jd = gate.payload.jobDetails || {};
+      const msgs = [
+        ...apiMessages,
+        { role: 'user', text: answerText },
+        { role: 'assistant', text: 'Got it — let me make sure this is set up the right way.' },
+        { role: 'user', text: `[SYSTEM: The manager selected ${names || 'worker(s)'} from the talent pool for "${jd.role_title || 'this role'}", but they will be managing the person's day-to-day work. That means this engagement must route to ${config.vms.name} (route "vms"), NOT worksome — do not set up an independent engagement. Without using jargon, briefly explain that because they'll be directing the daily work, you'll set this up through the managed route instead. Check the conversation history and ask ONLY for details still missing (e.g. duration), one at a time, then output the routing JSON with route "vms" and everything you know (role_title, description, skills, duration, headcount, location).]` }
+      ];
+      setApiMessages(msgs);
+      sendToAssistant(answerText, msgs);
+      return;
+    }
+
+    setApiMessages(prev => [...prev, { role: 'user', text: answerText }]);
+    setMessages(prev => [...prev, { role: 'assistant', text: 'Creating the job in Worksome...', time: new Date(), isSearching: true }]);
+    try {
+      const res = await fetch('/api/worksome/invite', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify(gate.payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create job');
+      console.log('[Front Door] Job created and workers invited:', data);
+      setFoundWorkers([]);
+      const invited = (data.results || []).map(r => r.workerName || r.workerId).join(', ');
+      setMessages(prev => [...prev.filter(m => !m.isSearching), {
+        role: 'assistant',
+        text: 'All set — the job is created and the invites are on their way.',
+        time: new Date(),
+        jobCard: data
+      }]);
+      // Keep the assistant's context in sync so the chat can continue
+      setApiMessages(prev => [...prev, { role: 'assistant', text: `All set — I created the job "${data.job_title}" in Worksome and invited ${invited || 'the selected worker(s)'}. Ask if there's anything else you can help with.` }]);
+    } catch (err) {
+      console.error('[Front Door] Invite error:', err);
+      setTalentCollapsed(false);
+      const failText = `I couldn't create the job: ${err.message}. Your selection is still in the panel above — try again from there.`;
+      setMessages(prev => [...prev.filter(m => !m.isSearching), { role: 'assistant', text: failText, time: new Date() }]);
+      setApiMessages(prev => [...prev, { role: 'assistant', text: failText }]);
     }
   };
 
@@ -979,7 +1048,7 @@ function ChatPage({ config, setPage, page }) {
     sendToAssistant(text, newApiMsgs);
   };
 
-  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setListening(false); setFoundWorkers([]); setTalentCollapsed(false); setGhDiscovery(null); setApprovalGate(null); pendingHandoffRef.current = null; _conversationStartedAt = null; if (recognitionRef.current) recognitionRef.current.stop(); };
+  const resetChat = () => { setStarted(false); setMessages([]); setApiMessages([]); setRouteResult(null); setHandoffResult(null); setHandoffLoading(false); setError(null); setQuickReplies(null); setWaitingForWorkerName(false); setListening(false); setFoundWorkers([]); setTalentCollapsed(false); setGhDiscovery(null); setApprovalGate(null); setComplianceGate(null); pendingHandoffRef.current = null; _conversationStartedAt = null; if (recognitionRef.current) recognitionRef.current.stop(); };
 
   const now = (d) => d ? d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 
@@ -1034,7 +1103,39 @@ function ChatPage({ config, setPage, page }) {
                       {m.role === 'assistant' ? config.branding.logo_text : 'You'}
                     </div>
                     <div>
-                      <div className="chat-bubble" style={{whiteSpace: 'pre-wrap'}}>{m.text}</div>
+                      <div className="chat-bubble" style={{whiteSpace: 'pre-wrap'}}>
+                        {m.text}
+                        {m.jobCard && (
+                          <div style={{marginTop: m.text ? 10 : 0, padding: '10px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8}}>
+                            <div style={{fontSize: 13, fontWeight: 600, color: '#15803d', marginBottom: 4}}>
+                              ✓ Job created in Worksome
+                            </div>
+                            <div style={{fontSize: 12, color: '#166534', marginBottom: 6}}>
+                              {m.jobCard.job_title} — {m.jobCard.results?.length || 0} worker{(m.jobCard.results?.length || 0) !== 1 ? 's' : ''} invited
+                            </div>
+                            {m.jobCard.results && m.jobCard.results.map(r => (
+                              <div key={r.workerId} style={{fontSize: 12, marginBottom: 3, display: 'flex', gap: 6, alignItems: 'center'}}>
+                                <span style={{width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: '#22c55e'}}></span>
+                                <span style={{fontWeight: 500}}>{r.workerName || r.workerId}</span>
+                              </div>
+                            ))}
+                            {m.jobCard.job_url && (
+                              <a href={m.jobCard.job_url} target="_blank" rel="noopener" className="btn btn-sm btn-primary"
+                                style={{textDecoration: 'none', display: 'inline-flex', marginTop: 8}}>
+                                Open in Worksome →
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {m.linkUrl && (
+                          <div style={{marginTop: 10}}>
+                            <a href={m.linkUrl} target="_blank" rel="noopener" className="btn btn-sm"
+                              style={{textDecoration: 'none', display: 'inline-flex'}}>
+                              {m.linkLabel || 'Open →'}
+                            </a>
+                          </div>
+                        )}
+                      </div>
                       <div className="chat-time">{now(m.time)}</div>
                     </div>
                   </div>
@@ -1073,6 +1174,7 @@ function ChatPage({ config, setPage, page }) {
                     }}
                     onClose={() => setFoundWorkers([])}
                     routeResult={routeResult}
+                    onRequestCreate={requestCreateJob}
                   />
                 ))}
 
@@ -1091,6 +1193,13 @@ function ChatPage({ config, setPage, page }) {
                     {quickReplies.map((qr, i) => (
                       <button key={i} className="chat-option" onClick={() => handleSend(qr)}>{qr}</button>
                     ))}
+                  </div>
+                )}
+
+                {complianceGate && !loading && (
+                  <div className="chat-options" style={{marginLeft: 38}}>
+                    <button className="chat-option" onClick={() => answerComplianceGate(true)}>They'll work independently</button>
+                    <button className="chat-option" onClick={() => answerComplianceGate(false)}>I'll manage their day-to-day</button>
                   </div>
                 )}
 
@@ -1655,11 +1764,9 @@ function WorksomeTalentCard({ worker, onHire, selected, onToggleSelect }) {
   );
 }
 
-function WorksomeTalentPanel({ workers, onHire, onClose, routeResult }) {
+function WorksomeTalentPanel({ workers, onHire, onClose, routeResult, onRequestCreate }) {
   const panelRef = React.useRef(null);
   const [selectedIds, setSelectedIds] = React.useState(new Set());
-  const [inviteLoading, setInviteLoading] = React.useState(false);
-  const [inviteResult, setInviteResult] = React.useState(null);
 
   React.useEffect(() => {
     if (panelRef.current) {
@@ -1693,40 +1800,27 @@ function WorksomeTalentPanel({ workers, onHire, onClose, routeResult }) {
     }
   };
 
-  const handleCreateJobAndInvite = async () => {
-    if (selectedIds.size === 0) return;
-    setInviteLoading(true);
-    try {
-      const selectedWorkers = workers.filter(w => selectedIds.has(w.id));
-      // Pull skills from route result, or extract from selected workers' skills
-      const fallbackSkills = [...new Set(selectedWorkers.flatMap(w => w.skills || []))].slice(0, 5);
-      const jobDetails = {
-        role_title: routeResult?.role_title || 'New Role',
-        description: routeResult?.description || '',
-        skills: (routeResult?.skills && routeResult.skills.length > 0) ? routeResult.skills : fallbackSkills,
-        duration: routeResult?.duration || '',
-        location: routeResult?.location || 'remote',
-        payment_model: routeResult?.payment_model || 'unknown',
-        headcount: selectedWorkers.length,
-      };
-      const res = await fetch('/api/worksome/invite', {
-        method: 'POST',
-        headers: apiHeaders(),
-        body: JSON.stringify({
-          jobDetails,
-          workerIds: Array.from(selectedIds),
-          workerNames: Object.fromEntries(selectedWorkers.map(w => [w.id, w.name])),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to create job');
-      setInviteResult(data);
-      console.log('[Front Door] Job created and workers invited:', data);
-    } catch (err) {
-      console.error('[Front Door] Invite error:', err);
-      setInviteResult({ error: err.message });
-    }
-    setInviteLoading(false);
+  // Creation is delegated to the chat: the parent asks the classification
+  // question first, then creates the job and posts the result as a message.
+  const handleCreateJobAndInvite = () => {
+    if (selectedIds.size === 0 || !onRequestCreate) return;
+    const selectedWorkers = workers.filter(w => selectedIds.has(w.id));
+    // Pull skills from route result, or extract from selected workers' skills
+    const fallbackSkills = [...new Set(selectedWorkers.flatMap(w => w.skills || []))].slice(0, 5);
+    const jobDetails = {
+      role_title: routeResult?.role_title || 'New Role',
+      description: routeResult?.description || '',
+      skills: (routeResult?.skills && routeResult.skills.length > 0) ? routeResult.skills : fallbackSkills,
+      duration: routeResult?.duration || '',
+      location: routeResult?.location || 'remote',
+      payment_model: routeResult?.payment_model || 'unknown',
+      headcount: selectedWorkers.length,
+    };
+    onRequestCreate({
+      jobDetails,
+      workerIds: Array.from(selectedIds),
+      workerNames: Object.fromEntries(selectedWorkers.map(w => [w.id, w.name])),
+    });
   };
 
   return (
@@ -1765,7 +1859,7 @@ function WorksomeTalentPanel({ workers, onHire, onClose, routeResult }) {
       ))}
 
       {/* Selection action bar */}
-      {selectedIds.size > 0 && !inviteResult && (
+      {selectedIds.size > 0 && (
         <div style={{
           padding: '12px 16px', background: 'var(--accent-bg)', borderTop: '2px solid var(--accent)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -1776,51 +1870,10 @@ function WorksomeTalentPanel({ workers, onHire, onClose, routeResult }) {
           <button
             className="btn btn-sm btn-primary"
             onClick={handleCreateJobAndInvite}
-            disabled={inviteLoading}
             style={{minWidth: 160}}
           >
-            {inviteLoading ? 'Creating job...' : `Create Job & Invite ${selectedIds.size}`}
+            Create Job & Invite {selectedIds.size}
           </button>
-        </div>
-      )}
-
-      {/* Invite result */}
-      {inviteResult && !inviteResult.error && (
-        <div style={{
-          padding: '12px 16px', background: '#f0fdf4', borderTop: '2px solid #22c55e',
-        }}>
-          <div style={{fontSize: 14, fontWeight: 600, color: '#15803d', marginBottom: 6}}>
-            ✓ Job created in Worksome
-          </div>
-          <div style={{fontSize: 12, color: '#166534', marginBottom: 8}}>
-            {inviteResult.job_title} — {inviteResult.results?.length || 0} worker{(inviteResult.results?.length || 0) !== 1 ? 's' : ''} selected
-          </div>
-          {inviteResult.results && inviteResult.results.map(r => (
-            <div key={r.workerId} style={{fontSize: 12, marginBottom: 3, display: 'flex', gap: 6, alignItems: 'center'}}>
-              <span style={{width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: '#22c55e'}}></span>
-              <span style={{fontWeight: 500}}>{r.workerName || r.workerId}</span>
-            </div>
-          ))}
-          <div style={{marginTop: 10, display: 'flex', gap: 8}}>
-            {inviteResult.job_url && (
-              <a
-                href={inviteResult.job_url}
-                target="_blank"
-                rel="noopener"
-                className="btn btn-sm btn-primary"
-                style={{textDecoration: 'none', display: 'inline-flex'}}
-              >
-                Open in Worksome →
-              </a>
-            )}
-          </div>
-        </div>
-      )}
-
-      {inviteResult && inviteResult.error && (
-        <div style={{padding: '12px 16px', background: 'var(--red-bg)', borderTop: '2px solid var(--red)', fontSize: 12, color: 'var(--red)'}}>
-          Error: {inviteResult.error}
-          <button className="btn btn-sm" onClick={() => setInviteResult(null)} style={{marginLeft: 8}}>Retry</button>
         </div>
       )}
 
