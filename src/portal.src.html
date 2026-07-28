@@ -675,6 +675,7 @@ function ChatPage({ config, setPage, page }) {
   // signal) in chat, and only create the job on an "independent" answer.
   const requestCreateJob = (payload) => {
     setTalentCollapsed(true);
+    setGhDiscovery(null); // they've picked internal talent — clear external discovery so the gate question sits next to its answers
     setComplianceGate({ payload });
     const names = Object.values(payload.workerNames || {});
     const who = names.length === 1 ? names[0] : `these ${names.length} people`;
@@ -1158,6 +1159,14 @@ function ChatPage({ config, setPage, page }) {
                   </div>
                 )}
 
+                {/* Compliance gate answers — directly under the question, before any panels */}
+                {complianceGate && !loading && (
+                  <div className="chat-options" style={{marginLeft: 38}}>
+                    <button className="chat-option" onClick={() => answerComplianceGate(true)}>They'll work independently</button>
+                    <button className="chat-option" onClick={() => answerComplianceGate(false)}>I'll manage their day-to-day</button>
+                  </div>
+                )}
+
                 {/* Worksome Talent Pool panel — inline after messages */}
                 {foundWorkers.length > 0 && (talentCollapsed ? (
                   <div onClick={() => setTalentCollapsed(false)}
@@ -1193,13 +1202,6 @@ function ChatPage({ config, setPage, page }) {
                     {quickReplies.map((qr, i) => (
                       <button key={i} className="chat-option" onClick={() => handleSend(qr)}>{qr}</button>
                     ))}
-                  </div>
-                )}
-
-                {complianceGate && !loading && (
-                  <div className="chat-options" style={{marginLeft: 38}}>
-                    <button className="chat-option" onClick={() => answerComplianceGate(true)}>They'll work independently</button>
-                    <button className="chat-option" onClick={() => answerComplianceGate(false)}>I'll manage their day-to-day</button>
                   </div>
                 )}
 

@@ -978,6 +978,7 @@ function ChatPage({
   // signal) in chat, and only create the job on an "independent" answer.
   const requestCreateJob = payload => {
     setTalentCollapsed(true);
+    setGhDiscovery(null); // they've picked internal talent — clear external discovery so the gate question sits next to its answers
     setComplianceGate({
       payload
     });
@@ -1773,7 +1774,18 @@ function ChatPage({
       fontSize: 13,
       color: 'var(--red)'
     }
-  }, error), foundWorkers.length > 0 && (talentCollapsed ? /*#__PURE__*/React.createElement("div", {
+  }, error), complianceGate && !loading && /*#__PURE__*/React.createElement("div", {
+    className: "chat-options",
+    style: {
+      marginLeft: 38
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "chat-option",
+    onClick: () => answerComplianceGate(true)
+  }, "They'll work independently"), /*#__PURE__*/React.createElement("button", {
+    className: "chat-option",
+    onClick: () => answerComplianceGate(false)
+  }, "I'll manage their day-to-day")), foundWorkers.length > 0 && (talentCollapsed ? /*#__PURE__*/React.createElement("div", {
     onClick: () => setTalentCollapsed(false),
     style: {
       border: '1px solid var(--border)',
@@ -1813,18 +1825,7 @@ function ChatPage({
     key: i,
     className: "chat-option",
     onClick: () => handleSend(qr)
-  }, qr))), complianceGate && !loading && /*#__PURE__*/React.createElement("div", {
-    className: "chat-options",
-    style: {
-      marginLeft: 38
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "chat-option",
-    onClick: () => answerComplianceGate(true)
-  }, "They'll work independently"), /*#__PURE__*/React.createElement("button", {
-    className: "chat-option",
-    onClick: () => answerComplianceGate(false)
-  }, "I'll manage their day-to-day")), routeResult && (() => {
+  }, qr))), routeResult && (() => {
     const isWorksome = routeResult.route === 'worksome';
     const dest = isWorksome ? 'Worksome' : config.vms.name;
     const color = isWorksome ? 'var(--accent)' : 'var(--warn)';
